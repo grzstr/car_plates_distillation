@@ -1,0 +1,23 @@
+
+[Loading TF2 Saved Model]
+Loading model - my_ssd_resnet50_v1_fpn_exported...
+Cars0.jpg...  || Detection time: 7.67s || OCR time: 2.17s || ['HR05052']
+Cars1.jpg...  || Detection time: 0.18s || OCR time: 1.84s || ['KR 05061']
+Cars10.jpg...  || Detection time: 0.19s || OCR time: 1.83s || ['QP 6219']
+Cars11.jpg...  || Detection time: 0.18s || OCR time: 1.82s || ['CDL /9288']
+Cars12.jpg...  || Detection time: 0.18s || OCR time: 1.82s || []
+Cars13.jpg...  || Detection time: 0.18s || OCR time: 1.99s || ['WPLZK']
+Cars14.jpg...  || Detection time: 0.18s || OCR time: 1.83s || ['MD Z846F]']
+Cars15.jpg...  || Detection time: 0.17s || OCR time: 1.83s || ['DKAOFPC|']
+Cars16.jpg...  || Detection time: 0.18s || OCR time: 1.86s || []
+Cars17.jpg...  || Detection time: 0.18s || OCR time: 1.91s || ['OP 27584']
+Cars18.jpg...  || Detection time: 0.18s || OCR time: 2.00s || ['FK']
+Cars2.jpg...  || Detection time: 0.20s || OCR time: 1.93s || []
+Cars3.jpg...  || Detection time: 0.18s || OCR time: 1.84s || []
+Cars4.jpg...  || Detection time: 0.20s || OCR time: 1.82s || ['MRRA 2960']
+Cars5.jpg...  || Detection time: 0.17s || OCR time: 2.27s || ['ISML 060571']
+Cars6.jpg...  || Detection time: 0.21s || OCR time: 1.96s || ["'W529]"]
+Cars7.jpg...  || Detection time: 0.19s || OCR time: 2.09s || ['NNM2862']
+Cars8.jpg...  || Detection time: 0.21s || OCR time: 0.00s || ['']
+Cars9.jpg...  || Detection time: 0.19s || OCR time: 2.22s || ['WF 88015']
+Number of images: 19 || Total time: 47.12s

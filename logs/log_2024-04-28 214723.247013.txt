@@ -1,0 +1,24 @@
+
+Loading model - my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8... 
+The model has been loaded - 0.28s
+
+Cars0.jpg...  || Detection time: 21.54s || OCR time: 2.08s || ['HR 05052']
+Cars1.jpg...  || Detection time: 3.17s || OCR time: 2.62s || ['MR 05061']
+Cars10.jpg...  || Detection time: 3.02s || OCR time: 0.00s || ['']
+Cars11.jpg...  || Detection time: 2.76s || OCR time: 2.26s || ['CL /9286']
+Cars12.jpg...  || Detection time: 2.98s || OCR time: 2.03s || ['KR 3L16']
+Cars13.jpg...  || Detection time: 3.38s || OCR time: 1.93s || ['WPLZKY']
+Cars14.jpg...  || Detection time: 3.08s || OCR time: 1.89s || ['MDT846E']
+Cars15.jpg...  || Detection time: 3.20s || OCR time: 2.02s || ['DKAOFC']
+Cars16.jpg...  || Detection time: 3.17s || OCR time: 2.04s || []
+Cars17.jpg...  || Detection time: 3.19s || OCR time: 0.00s || ['']
+Cars18.jpg...  || Detection time: 3.18s || OCR time: 2.68s || ['F6T']
+Cars2.jpg...  || Detection time: 3.27s || OCR time: 2.00s || []
+Cars3.jpg...  || Detection time: 3.39s || OCR time: 2.49s || ['PGS 1HS']
+Cars4.jpg...  || Detection time: 3.47s || OCR time: 2.46s || ['WRA2960']
+Cars5.jpg...  || Detection time: 3.08s || OCR time: 2.08s || ['Shi606057']
+Cars6.jpg...  || Detection time: 3.64s || OCR time: 2.67s || ['W529']
+Cars7.jpg...  || Detection time: 3.58s || OCR time: 2.42s || ['NNM 128621']
+Cars8.jpg...  || Detection time: 3.04s || OCR time: 2.45s || []
+Cars9.jpg...  || Detection time: 3.33s || OCR time: 2.31s || ['880151']
+Number of images: 19 || Total time: 119.07s

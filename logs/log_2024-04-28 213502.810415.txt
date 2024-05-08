@@ -1,0 +1,26 @@
+
+Loading model - my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8... 
+The model has been loaded - 0.35s
+
+Cars411.png...  || Detection time: 43.81s || OCR time: 2.18s || ['VIPER']
+Cars412.png...  || Detection time: 5.50s || OCR time: 2.40s || ['Lr33 TEE']
+Cars413.png...  || Detection time: 7.04s || OCR time: 1.95s || []
+Cars414.png...  || Detection time: 5.44s || OCR time: 2.70s || ['~DFUN']
+Cars415.png...  || Detection time: 5.77s || OCR time: 2.14s || ['MH12NE B922']
+Cars416.png...  || Detection time: 0.12s || OCR time: 2.17s || ['172IM']
+Cars417.png...  || Detection time: 5.47s || OCR time: 2.26s || ['BAD 231']
+Cars418.png...  || Detection time: 5.71s || OCR time: 2.31s || ['Ox6s']
+Cars419.png...  || Detection time: 5.50s || OCR time: 2.12s || []
+Cars420.png...  || Detection time: 0.11s || OCR time: 2.17s || ['SKiP GAS']
+Cars421.png...  || Detection time: 5.47s || OCR time: 2.21s || []
+Cars422.png...  || Detection time: 5.71s || OCR time: 1.99s || ['VHZOEE ?']
+Cars423.png...  || Detection time: 5.36s || OCR time: 2.12s || ['P3RV_P']
+Cars424.png...  || Detection time: 5.25s || OCR time: 2.17s || ['KA:03 MG']
+Cars425.png...  || Detection time: 5.21s || OCR time: 2.25s || ['6526 JHD']
+Cars426.png...  || Detection time: 0.12s || OCR time: 2.15s || ['CRAIG']
+Cars427.png...  || Detection time: 0.13s || OCR time: 2.03s || ['01 CCTA od']
+Cars428.png...  || Detection time: 0.18s || OCR time: 1.94s || ['DZI7 YXR']
+Cars429.png...  || Detection time: 5.18s || OCR time: 0.00s || ['']
+Cars430.png...  || Detection time: 0.11s || OCR time: 2.18s || []
+Cars431.png...  || Detection time: 5.57s || OCR time: 2.29s || ['8055']
+Cars432.png...  || Detection time: 5.31s || OCR time: 2.24s || ['DL49 AK49']

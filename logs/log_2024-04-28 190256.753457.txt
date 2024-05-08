@@ -1,0 +1,3 @@
+
+Loading model - my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8... The model has been loaded - 0.33s
+Cars411.png... 

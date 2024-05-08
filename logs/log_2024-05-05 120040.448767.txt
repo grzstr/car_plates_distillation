@@ -1,0 +1,4 @@
+
+Loading model - my_ssd_resnet50_v1_fpn... 
+The model has been loaded - 0.26s
+
