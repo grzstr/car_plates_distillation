@@ -4,6 +4,7 @@ This project aims to recognize license plates using TensorFlow and the TensorFlo
 
 ## Requirements
 - TensorFlow 2.15
+- [TensorFlow Object Detection API](https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/tf2.md)
 - Python 3.9
 - EasyOCR
 - Ubuntu (or compatible operating system)
