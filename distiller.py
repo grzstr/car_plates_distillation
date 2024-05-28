@@ -19,8 +19,8 @@ class Distiller(tf.keras.Model):
         teacher_images, student_images, labels = data
 
         # Debugowanie
-        print(f"Rozmiar obrazów nauczyciela: {teacher_images.shape}, typ danych: {teacher_images.dtype}")
-        print(f"Rozmiar obrazów ucznia: {student_images.shape}, typ danych: {student_images.dtype}")
+        print(f"Kształt obrazów nauczyciela: {teacher_images.shape}, dtype: {teacher_images.dtype}")
+        print(f"Kształt obrazów ucznia: {student_images.shape}, dtype: {student_images.dtype}")
 
         # Przejście przez model nauczyciela
         teacher_predictions = self.teacher(teacher_images)
@@ -30,13 +30,25 @@ class Distiller(tf.keras.Model):
 
         # Zakładamy, że 'detection_multiclass_scores' są logitami klas
         teacher_logits = teacher_predictions['detection_multiclass_scores']
+        
+        # Debugowanie kształtu logitów nauczyciela
+        print(f"Kształt logitów nauczyciela przed przekształceniem: {teacher_logits.shape}")
+
+        # Przekształcenie logitów nauczyciela, aby pasowały do kształtu logitów ucznia
+        # W tym przypadku usuwamy wymiar 0, który jest zbędny i transponujemy tensor
+        teacher_logits = tf.squeeze(teacher_logits, axis=0)
+        teacher_logits = tf.transpose(teacher_logits, perm=[1, 0])
+        
+        # Debugowanie kształtu logitów nauczyciela po przekształceniu
+        print(f"Kształt logitów nauczyciela po przekształceniu: {teacher_logits.shape}")
 
         with tf.GradientTape() as tape:
             # Przejście przez model ucznia
             student_predictions = self.student(student_images, training=True)
-
-            # Dopasowanie tensorów logitów nauczyciela do logitów ucznia
-            teacher_logits = tf.reshape(teacher_logits, tf.shape(student_predictions))
+            
+            # Debugowanie kształtów
+            print(f"Kształt logitów nauczyciela: {teacher_logits.shape}")
+            print(f"Kształt predykcji ucznia: {student_predictions.shape}")
 
             # Obliczanie straty ucznia
             student_loss = self.student_loss_fn(labels, student_predictions)
