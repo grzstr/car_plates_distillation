@@ -18,37 +18,48 @@ class Distiller(tf.keras.Model):
     def train_step(self, data):
         teacher_images, student_images, labels = data
 
-        # Debugging print statements
-        print(f"Teacher images shape: {teacher_images.shape}, dtype: {teacher_images.dtype}")
-        print(f"Student images shape: {student_images.shape}, dtype: {student_images.dtype}")
+        # Debugowanie
+        print(f"Rozmiar obrazów nauczyciela: {teacher_images.shape}, typ danych: {teacher_images.dtype}")
+        print(f"Rozmiar obrazów ucznia: {student_images.shape}, typ danych: {student_images.dtype}")
 
-        # Forward pass through the teacher model
+        # Przejście przez model nauczyciela
         teacher_predictions = self.teacher(teacher_images)
+        
+        # Debugowanie predykcji nauczyciela
+        print(f"Predykcje nauczyciela: {teacher_predictions}")
+
+        # Zakładamy, że 'detection_multiclass_scores' są logitami klas
+        teacher_logits = teacher_predictions['detection_multiclass_scores']
 
         with tf.GradientTape() as tape:
-            # Forward pass through the student model
+            # Przejście przez model ucznia
             student_predictions = self.student(student_images, training=True)
 
-            # Compute the student loss
+            # Przekształcenie tensorów logitów nauczyciela, aby pasowały do logitów ucznia
+            batch_size = tf.shape(student_images)[0]
+            num_classes = tf.shape(student_predictions)[1]
+            teacher_logits = tf.reshape(teacher_logits, [batch_size, num_classes])
+
+            # Obliczanie straty ucznia
             student_loss = self.student_loss_fn(labels, student_predictions)
 
-            # Compute the distillation loss
+            # Obliczanie straty destylacji
             distillation_loss = self.distillation_loss_fn(
-                tf.nn.softmax(teacher_predictions / self.temperature, axis=1),
-'                tf.nn.softmax(student_predictions / self.temperature, axis=1)
+                tf.nn.softmax(teacher_logits / self.temperature, axis=1),
+                tf.nn.softmax(student_predictions / self.temperature, axis=1)
             )
 
-            # Compute the total loss
+            # Obliczanie całkowitej straty
             loss = self.alpha * student_loss + (1 - self.alpha) * distillation_loss
 
-        # Compute gradients
+        # Obliczanie gradientów
         trainable_vars = self.student.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
 
-        # Update weights
+        # Aktualizacja wag
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
-        # Update metrics
+        # Aktualizacja metryk
         self.compiled_metrics.update_state(labels, student_predictions)
 
         return {m.name: m.result() for m in self.metrics}
