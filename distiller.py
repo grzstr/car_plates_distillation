@@ -35,10 +35,8 @@ class Distiller(tf.keras.Model):
             # Przejście przez model ucznia
             student_predictions = self.student(student_images, training=True)
 
-            # Przekształcenie tensorów logitów nauczyciela, aby pasowały do logitów ucznia
-            batch_size = tf.shape(student_images)[0]
-            num_classes = tf.shape(student_predictions)[1]
-            teacher_logits = tf.reshape(teacher_logits, [batch_size, num_classes])
+            # Dopasowanie tensorów logitów nauczyciela do logitów ucznia
+            teacher_logits = tf.reshape(teacher_logits, tf.shape(student_predictions))
 
             # Obliczanie straty ucznia
             student_loss = self.student_loss_fn(labels, student_predictions)
@@ -67,18 +65,18 @@ class Distiller(tf.keras.Model):
     def test_step(self, data):
         student_images, labels = data
 
-        # Forward pass through the student model
+        # Przejście przez model ucznia
         student_predictions = self.student(student_images, training=False)
 
-        # Compute the student loss
+        # Obliczanie straty ucznia
         student_loss = self.student_loss_fn(labels, student_predictions)
 
-        # Update metrics
+        # Aktualizacja metryk
         self.compiled_metrics.update_state(labels, student_predictions)
 
         return {m.name: m.result() for m in self.metrics}
 
-# Define image sizes
+# Definiowanie rozmiarów obrazów
 teacher_image_size = (224, 224)
 student_image_size = (128, 128)
 
@@ -86,26 +84,26 @@ images_path = "TensorFlow/workspace/training_demo/images"
 model_name = "my_ssd_resnet50_v1_fpn_exported"
 exported_model_path = f"TensorFlow/workspace/training_demo/exported-models/"
 
-# Create ImageDataGenerators for resizing images
+# Tworzenie ImageDataGenerator dla zmiany rozmiaru obrazów
 teacher_datagen = ImageDataGenerator(rescale=1./255)
 student_datagen = ImageDataGenerator(rescale=1./255)
 
-# Load and preprocess images
+# Ładowanie i wstępne przetwarzanie obrazów
 teacher_generator = teacher_datagen.flow_from_directory(
     images_path + "/train",
     target_size=teacher_image_size,
-    batch_size=32,
+    batch_size=2,
     class_mode='categorical'
 )
 
 student_generator = student_datagen.flow_from_directory(
     images_path + "/train",
     target_size=student_image_size,
-    batch_size=32,
+    batch_size=2,
     class_mode='categorical'
 )
 
-# Create a function to wrap generators for distillation
+# Funkcja do łączenia generatorów dla destylacji
 def combined_generator(teacher_gen, student_gen):
     while True:
         teacher_images, labels = next(teacher_gen)
@@ -127,16 +125,14 @@ def get_mobilenet():
 
 combined_gen = combined_generator(teacher_generator, student_generator)
 
-# Assuming teacher and student models are already defined
+# Załadowanie modeli nauczyciela i ucznia
 teacher_model = keras.models.load_model(exported_model_path + f"{model_name}_keras")
 student_model = get_mobilenet()
 
-#print(teacher_model.input)
-
-# Create a Distiller instance
+# Stworzenie instancji Distillera
 distiller = Distiller(teacher=teacher_model, student=student_model)
 
-# Compile the distiller
+# Kompilacja distillera
 distiller.compile(
     optimizer=tf.keras.optimizers.Adam(),
     metrics=[tf.keras.metrics.CategoricalAccuracy()],
@@ -146,5 +142,5 @@ distiller.compile(
     temperature=3
 )
 
-# Train the student model using the distiller
+# Trenowanie modelu ucznia przy użyciu distillera
 distiller.fit(combined_gen, steps_per_epoch=len(teacher_generator), epochs=10)
