@@ -18,6 +18,10 @@ class Distiller(tf.keras.Model):
     def train_step(self, data):
         teacher_images, student_images, labels = data
 
+        # Debugging print statements
+        print(f"Teacher images shape: {teacher_images.shape}, dtype: {teacher_images.dtype}")
+        print(f"Student images shape: {student_images.shape}, dtype: {student_images.dtype}")
+
         # Forward pass through the teacher model
         teacher_predictions = self.teacher(teacher_images)
 
@@ -31,7 +35,7 @@ class Distiller(tf.keras.Model):
             # Compute the distillation loss
             distillation_loss = self.distillation_loss_fn(
                 tf.nn.softmax(teacher_predictions / self.temperature, axis=1),
-                tf.nn.softmax(student_predictions / self.temperature, axis=1)
+'                tf.nn.softmax(student_predictions / self.temperature, axis=1)
             )
 
             # Compute the total loss
@@ -95,6 +99,10 @@ def combined_generator(teacher_gen, student_gen):
     while True:
         teacher_images, labels = next(teacher_gen)
         student_images, _ = next(student_gen)
+        
+        # Cast teacher_images to the expected dtype if needed
+        teacher_images = tf.cast(teacher_images * 255.0, tf.uint8)
+        
         yield (teacher_images, student_images, labels)
 
 def get_mobilenet():
@@ -111,6 +119,8 @@ combined_gen = combined_generator(teacher_generator, student_generator)
 # Assuming teacher and student models are already defined
 teacher_model = keras.models.load_model(exported_model_path + f"{model_name}_keras")
 student_model = get_mobilenet()
+
+#print(teacher_model.input)
 
 # Create a Distiller instance
 distiller = Distiller(teacher=teacher_model, student=student_model)
