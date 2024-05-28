@@ -31,17 +31,20 @@ from platesdetection import *
 
 
 #model = ModelLoader()
-model_name = "my_ssd_resnet50_v1_fpn"
-#model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8"
+#model_name = "my_ssd_resnet50_v1_fpn"
+model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8"
 #model_name = "my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8"
 #model_name = "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8"
 #model_name = "my_ssd_resnet101_v1_fpn_640x640_coco17_tpu-8"
 #model_name = "my_ssd_resnet50_v1_fpn_exported"
 
 video_path = "TensorFlow/workspace/training_demo/videos/demo.mp4"
-
+path_to_images_dir = "TensorFlow/workspace/training_demo/images/test"
+#path_to_images_dir = "TensorFlow/workspace/training_demo/images/wedding"
+#path_to_images_dir = "TensorFlow/workspace/training_demo/images/fb"
+#path_to_images_dir = "TensorFlow/workspace/training_demo/images/other_objects"
 
 #model.download_model(URL)
-detector = detection(model_name)
+detector = detection(model_name, path_to_images_dir)
 detector.detect_all_images()
 #detector.detect_video(video_path, False)

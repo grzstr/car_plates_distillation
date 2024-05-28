@@ -100,17 +100,14 @@ class ModelLoader:
 
 
 class detection:
-    def __init__(self, model_name):
+    def __init__(self, model_name, path_to_images):
         self.model = ModelLoader()
         self.detection_model = self.model.load_model(model_name)
         self.model_name =  model_name
 
         self.label_filename = "label_map.pbtxt"
+        self.path_to_images_dir = path_to_images
 
-        #self.path_to_images_dir = "TensorFlow/workspace/training_demo/images/test"
-        #self.path_to_images_dir = "TensorFlow/workspace/training_demo/images/wedding"
-        self.path_to_images_dir = "TensorFlow/workspace/training_demo/images/fb"
-        #self.path_to_images_dir = "TensorFlow/workspace/training_demo/images/other_objects"
         self.path_to_labels = f"TensorFlow/workspace/training_demo/annotations/{self.label_filename}"
 
         self.image_names = self.find_images_names()
@@ -293,4 +290,5 @@ class detection:
             if key == ord("q"):
                 break
 
-            (success, image) = cap.read()       
+            (success, image) = cap.read()
+
