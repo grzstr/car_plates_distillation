@@ -20,11 +20,14 @@ class ModelLoader:
         self.start_time = datetime.now()
         self.save_log = True
         self.path_to_model_dir = "TensorFlow/workspace/training_demo/models/"
-        self.downloaded_models_dir = "TensorFlow/workspace/training_demo/"
+        self.downloaded_models_dir = "TensorFlow/workspace/training_demo/pre-trained_models/"
         self.exported_model_dir = "TensorFlow/workspace/training_demo/exported-models/"
+        self.distilled_model_path = "TensorFlow/workspace/training_demo/distil_models/"
         self.ckpt_dict = {"my_ssd_resnet50_v1_fpn":'/ckpt-31',
                           "my_ssd_resnet101_v1_fpn_640x640_coco17_tpu-8":"/ckpt-28",
+                          "my_ssd_resnet101_v1_fpn_640x640_coco17_tpu-8_3":"/ckpt-26",
                           "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8":"/ckpt-26",
+                          "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_2":"/ckpt-26",
                           "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8":"/ckpt-26",
                           "my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8": "/ckpt-51"}
   
@@ -43,8 +46,12 @@ class ModelLoader:
         self.print_message("\n[Loading TF2 Saved Model]\n")
         self.print_message(f'Loading model - {model_name}...\n')
         start_time = time.time()
+        if model_name[-9:] == "_exported":
+            model_path = self.exported_model_dir + f"{model_name}/saved_model"
+        else:
+            model_path = self.exported_model_dir + f"{model_name}"
 
-        detection_model = tf.saved_model.load(self.exported_model_dir + f"{model_name}/saved_model")
+        detection_model = tf.saved_model.load(model_path)
 
         end_time = time.time()
         elapsed_time = end_time - start_time
@@ -52,6 +59,18 @@ class ModelLoader:
 
         return detection_model
 
+    def load_from_saved_model_keras(self, model_name):
+        self.print_message("\n[Loading TF2 Saved Model]\n")
+        self.print_message(f'Loading model - {model_name}...\n')
+        start_time = time.time()
+
+        detection_model = tf.saved_model.load(self.distilled_model_path + f"{model_name}")
+
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f'The model has been loaded - {elapsed_time:.2f}s\n')
+
+        return detection_model
 
     def load_from_ckpt(self, model_name):
         self.path_to_model_dir += model_name
@@ -83,8 +102,10 @@ class ModelLoader:
         return detection_model
     
     def load_model(self, model_name):
-        if model_name[-9:] == "_exported":
+        if model_name[-9:] == "_exported" or model_name[-6:] == "_keras":
             detection_model = self.load_from_saved_model(model_name)
+        elif model_name[-10:] == "_distilled":
+            detection_model = self.load_from_saved_model_keras(model_name)
         else:
             detection_model = self.load_from_ckpt(model_name)
 
@@ -115,7 +136,8 @@ class detection:
         self.region_threshold = 0.3
         self.detection_threshold = 0.3
 
-        
+    def extract_number(self, filename):
+        return int(filename.split("Cars")[1].split(".")[0])
 
     def find_images_names(self):
         images_names = []
@@ -123,8 +145,8 @@ class detection:
         for image_name in os.listdir(self.path_to_images_dir):
             if image_name.endswith(('.bmp', '.jpg', '.png', '.jpeg')):
                 images_names.append(image_name)
-        
-        return images_names
+        sorted_names = sorted(images_names, key=self.extract_number)
+        return sorted_names
 
     def filter_text(self, region, ocr_result, region_threshold):
         rectangle_size = region.shape[0]*region.shape[1]
@@ -170,7 +192,7 @@ class detection:
     # OBJECT DETECTION
     #****************************************
 
-    @tf.function
+    #@tf.function
     def detect_fn(self, image):
         """Detect objects in image."""
 
@@ -184,14 +206,20 @@ class detection:
         category_index = label_map_util.create_category_index_from_labelmap(self.path_to_labels, use_display_name=True)
         input_tensor = tf.convert_to_tensor(np.expand_dims(image_np, 0), dtype=tf.float32)
 
-        if self.model_name[-9:] == "_exported":
+        if self.model_name[-9:] == "_exported" or self.model_name[-6:] == "_keras":
             # The input needs to be a tensor, convert it using `tf.convert_to_tensor`.
             input_tensor = tf.convert_to_tensor(image_np)
             # The model expects a batch of images, so add an axis with `tf.newaxis`.
             input_tensor = input_tensor[tf.newaxis, ...]
             detections = self.detection_model(input_tensor)
+        elif self.model_name[-10:] == "_distilled":
+           # Model oczekuje obrazu w rozmiarze (640, 640, 3), więc zmieniamy rozmiar wejściowego obrazu
+            resized_image = tf.image.resize(image_np, (640, 640))
+            input_tensor = tf.convert_to_tensor(np.expand_dims(resized_image, 0), dtype=tf.float32)
+            detections = self.detection_model(input_tensor)         
         else:
             detections = self.detect_fn(input_tensor)
+            
 
         num_detections = int(detections.pop('num_detections'))
         detections = {key: value[0, :num_detections].numpy()

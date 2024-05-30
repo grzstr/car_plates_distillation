@@ -25,59 +25,54 @@ class Distiller(tf.keras.Model):
     def train_step(self, data):
         teacher_images, student_images, labels = data
 
+        # Debugowanie
         print(f"Kształt obrazów nauczyciela: {teacher_images.shape}, dtype: {teacher_images.dtype}")
         print(f"Kształt obrazów ucznia: {student_images.shape}, dtype: {student_images.dtype}")
 
+        # Przejście przez model nauczyciela
         teacher_predictions = self.teacher(teacher_images)
+        print(f"Predykcje nauczyciela: {teacher_predictions}")
 
-        print(f"Struktura predykcji nauczyciela: {type(teacher_predictions)}")
-        print(f"Klucze w predykcjach nauczyciela: {teacher_predictions.keys()}")
-        print(f"Kształt 'raw_detection_scores': {teacher_predictions['raw_detection_scores'].shape}")
-        print(f"Dtype 'raw_detection_scores': {teacher_predictions['raw_detection_scores'].dtype}")
+        # Zakładamy, że 'detection_multiclass_scores' są logitami klas
+        teacher_logits = teacher_predictions['detection_multiclass_scores']
+        print(f"Kształt logitów nauczyciela przed przekształceniem: {teacher_logits.shape}")
 
-        teacher_logits = teacher_predictions['raw_detection_scores']
-
-        print(f"Przed reshape: kształt teacher_logits: {teacher_logits.shape}")
-
-        num_elements_teacher_logits = tf.size(teacher_logits)
-        print(f"Liczba elementów w teacher_logits: {num_elements_teacher_logits}")
-
-        batch_size = tf.shape(student_images)[0]
-        num_classes = tf.shape(teacher_logits)[-1] // self.temperature  # Assuming the division is appropriate here
-
-        # Calculate the new shape
-        new_shape = tf.stack([batch_size, -1, 2])
-        print(f"Nowy kształt: {new_shape}")
+        # Przekształcenie logitów nauczyciela, aby pasowały do kształtu logitów ucznia
+        # W tym przypadku usuwamy wymiar 0, który jest zbędny i transponujemy tensor
+        teacher_logits = tf.squeeze(teacher_logits, axis=0)
+        teacher_logits = tf.transpose(teacher_logits, perm=[1, 0])
         
-        # Ensure the new shape has the same number of elements
-        num_elements_new_shape = tf.reduce_prod(new_shape)
-        print(f"Liczba elementów po reshape: {num_elements_new_shape}")
-
-        # Verify if number of elements match
-        tf.debugging.assert_equal(num_elements_teacher_logits, num_elements_new_shape, message="Niezgodność liczby elementów")
-
-        teacher_logits = tf.reshape(teacher_logits, new_shape)
-        teacher_logits = tf.reduce_mean(teacher_logits, axis=1)
-        teacher_logits = tf.reshape(teacher_logits, [batch_size, -1])  # Adjusted reshape
-
-        print(f"Kształt logitów nauczyciela po przycięciu: {teacher_logits.shape}")
+        # Debugowanie kształtu logitów nauczyciela po przekształceniu
+        print(f"Kształt logitów nauczyciela po przekształceniu: {teacher_logits.shape}")
 
         with tf.GradientTape() as tape:
-            student_predictions = self.student(student_images)
+            # Przejście przez model ucznia
+            student_predictions = self.student(student_images, training=True)
+            
+            # Debugowanie kształtów
+            print(f"Kształt logitów nauczyciela: {teacher_logits.shape}")
             print(f"Kształt predykcji ucznia: {student_predictions.shape}")
 
+            # Obliczanie straty ucznia
             student_loss = self.student_loss_fn(labels, student_predictions)
+
+            # Obliczanie straty destylacji
             distillation_loss = self.distillation_loss_fn(
                 tf.nn.softmax(teacher_logits / self.temperature, axis=1),
                 tf.nn.softmax(student_predictions / self.temperature, axis=1)
             )
 
+            # Obliczanie całkowitej straty
             loss = self.alpha * student_loss + (1 - self.alpha) * distillation_loss
 
+        # Obliczanie gradientów
         trainable_vars = self.student.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
+
+        # Aktualizacja wag
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
 
+        # Report progress
         self.loss_tracker.update_state(distillation_loss)
         return {"distillation_loss": self.loss_tracker.result()}
 
