@@ -7,8 +7,7 @@ import numpy as np
 import cv2
 import time
 import os
-
-
+from tqdm import tqdm
 
 #@tf.function
 def detect_fn(image, detection_model):
@@ -50,6 +49,11 @@ def find_images_names(path_to_images_dir):
     return sorted_names
 
 def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, loss_fn,  distillation_loss_fn, alpha=0.1):
+    # Enable GPU dynamic memory allocation
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+
     print("\nDistillation started...")
     print(f"Teacher model: {teacher_name}  || student model: {student_name}")
     start_disitll = time.time()
@@ -57,26 +61,32 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
 
 
     for epoch in range(epoch_num):
-        print(f"Epoch: {epoch}/{epoch_num}", end="")
+        print(f"Epoch: {epoch}/{epoch_num} ", end="")
         start_time = time.time()
-        for data, image in zip(dataset, images):
-            imagetf, label = data
-            teacher_detections = detect_object(image, teacher_model, teacher_name)
 
+        #i = 0
+        #for data, image in zip(dataset, images):
+        # Initialize tqdm for data loading bar
+        progress_bar = tqdm(images, desc=f"Epoch {epoch + 1}/{epoch_num}")
+
+        for image in progress_bar:
+            #print(f"{i/len(images)*100:.2f}% ")
+            #imagetf, label = data
+            teacher_detections = detect_object(image, teacher_model, teacher_name)
+  
             with tf.GradientTape() as tape:
                 student_detections = detect_object(image, student_model, student_name)
 
-                loss_value = loss_fn(label, student_detections)
-                distillation_loss = distillation_loss_fn(teacher_detections, student_detections)
-                total_loss = alpha * loss_value + (1 - alpha) * distillation_loss 
+                distillation_loss = distillation_loss_fn(teacher_detections['raw_detection_scores'], student_detections['raw_detection_scores'])
 
-            gradients = tape.gradient(total_loss, student_model.trainable_variables)
+            gradients = tape.gradient(distillation_loss, student_model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, student_model.trainable_variables))
+            #i += 1
         end_time = time.time()
-        print(" - Time: {:.2f}s - Loss: {:.4f}".format(end_time - start_time, total_loss))
+        print(" - Time: {:.2f}s - Loss: {:.4f}".format(end_time - start_time, distillation_loss))
     end_distill = time.time()
     print(f"Distillation finished in {end_distill - start_disitll:.2f}s")
-    return student_model, total_loss
+    return student_model, distillation_loss
 
 def get_student_model(model_name):
     student_model_path = f"TensorFlow/workspace/training_demo/distil_models/{model_name}"
@@ -131,6 +141,7 @@ student_model_name = "ssd_mobilenet_v1_fpn_640x640_distilled"
 label_filename = "label_map.pbtxt"
 
 train_tfrecords_path = "TensorFlow/workspace/training_demo/annotations/train.record"
+distilled_model_path = "TensorFlow/workspace/training_demo/distil_models/"
 path_to_labels = f"TensorFlow/workspace/training_demo/annotations/{label_filename}"
 category_index = label_map_util.create_category_index_from_labelmap(path_to_labels, use_display_name=True)
 
@@ -144,4 +155,9 @@ distillation_loss = tf.keras.losses.KLDivergence()
 dataset = load_tfrecord_dataset(train_tfrecords_path, batch_size=batch_size)
 epoch = 10
 
-distill(epoch, dataset, teacher_model, teacher_model_name, student_model, student_model_name, optimizer, loss_fn, distillation_loss)
+model, disitillation_loss_f = distill(epoch, dataset, teacher_model, teacher_model_name, student_model, student_model_name, optimizer, loss_fn, distillation_loss)
+
+
+
+
+#tf.saved_model.save(model, distilled_model_path + student_model_name + "_1000") 
