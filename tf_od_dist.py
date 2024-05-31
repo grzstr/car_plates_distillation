@@ -61,16 +61,11 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
 
 
     for epoch in range(epoch_num):
-        print(f"Epoch: {epoch}/{epoch_num} ", end="")
         start_time = time.time()
 
-        #i = 0
         #for data, image in zip(dataset, images):
-        # Initialize tqdm for data loading bar
         progress_bar = tqdm(images, desc=f"Epoch {epoch + 1}/{epoch_num}")
-
         for image in progress_bar:
-            #print(f"{i/len(images)*100:.2f}% ")
             #imagetf, label = data
             teacher_detections = detect_object(image, teacher_model, teacher_name)
   
@@ -81,11 +76,11 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
 
             gradients = tape.gradient(distillation_loss, student_model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, student_model.trainable_variables))
-            #i += 1
         end_time = time.time()
         print(" - Time: {:.2f}s - Loss: {:.4f}".format(end_time - start_time, distillation_loss))
     end_distill = time.time()
-    print(f"Distillation finished in {end_distill - start_disitll:.2f}s")
+    total_distill_time = end_distill - start_disitll
+    print(f"Distillation finished in {total_distill_time:.2f}s || {total_distill_time/60:.2f}min || {total_distill_time/3600:.2f}h")
     return student_model, distillation_loss
 
 def get_student_model(model_name):
@@ -158,6 +153,8 @@ epoch = 10
 model, disitillation_loss_f = distill(epoch, dataset, teacher_model, teacher_model_name, student_model, student_model_name, optimizer, loss_fn, distillation_loss)
 
 
-
+# Zapisanie modelu
+ckpt = tf.compat.v2.train.Checkpoint(model=model)
+ckpt.save(os.path.join(model, distilled_model_path + student_model_name + 'ckpt'))
 
 #tf.saved_model.save(model, distilled_model_path + student_model_name + "_1000") 
