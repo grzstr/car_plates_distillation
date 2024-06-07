@@ -7,7 +7,10 @@ import numpy as np
 import cv2
 import time
 import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from tqdm import tqdm
+
+
 
 #@tf.function
 def detect_fn(image, detection_model):
@@ -45,12 +48,13 @@ def reshape_classses(classes, student_prediction_dict):
 
     return reshaped_classes, student_preds
 
-#@tf.function
+@tf.function
 def compute_iou(box1, box2):
     # Ensure boxes have correct shapes
     box1 = tf.reshape(box1, [-1, 4])
     box2 = tf.reshape(box2, [-1, 4])
 
+    #with tf.device('/CPU:0'):
     x1 = tf.maximum(box1[:, tf.newaxis, 0], box2[:, 0])
     y1 = tf.maximum(box1[:, tf.newaxis, 1], box2[:, 1])
     x2 = tf.minimum(box1[:, tf.newaxis, 2], box2[:, 2])
@@ -68,7 +72,7 @@ def compute_iou(box1, box2):
 def match_predictions_to_ground_truth(pred_boxes, true_boxes, iou_threshold=0.5):
     # Compute IoU between all predicted boxes and true boxes
     iou_matrix = compute_iou(pred_boxes, true_boxes)
-    
+
     # Perform matching using the IoU matrix
     matches = tf.argmax(iou_matrix, axis=1)
     matched_iou = tf.reduce_max(iou_matrix, axis=1)
@@ -79,8 +83,9 @@ def match_predictions_to_ground_truth(pred_boxes, true_boxes, iou_threshold=0.5)
 
     matched_pred_boxes = tf.gather(pred_boxes, matched_indices)
     matched_true_boxes = tf.gather(true_boxes, tf.gather(matches, matched_indices))
-    
+
     return matched_pred_boxes, matched_true_boxes
+
 
 def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, classification_loss_fn, localization_loss_fn,  distillation_loss_fn):
     # Enable GPU dynamic memory allocation
@@ -111,10 +116,10 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
                 classification_loss = classification_loss_fn(reshaped_classes, student_preds)
 
                 matched_pred_boxes, matched_true_boxes = match_predictions_to_ground_truth(
-                    student_prediction_dict['box_encodings'], student_prediction_dict['class_predictions_with_background'],
-                    boxes
+                    student_prediction_dict['box_encodings'], boxes
                 )
-
+                matched_pred_boxes = tf.reshape(matched_pred_boxes, [-1, 4])
+                matched_true_boxes = tf.reshape(matched_true_boxes, [-1, 4])
                 localization_loss = localization_loss_fn(matched_true_boxes, matched_pred_boxes)
 
                 # Calculate distillation loss
@@ -127,6 +132,8 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
 
             gradients = tape.gradient(total_loss, student_model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, student_model.trainable_variables))
+            #Zwolnienie pamięci GPU
+            tf.keras.backend.clear_session()
         end_time = time.time()
         print(" - Time: {:.2f}s - Loss: {:.4f}".format(end_time - start_time, total_loss))
     end_distill = time.time()
