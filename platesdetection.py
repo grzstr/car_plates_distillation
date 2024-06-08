@@ -29,14 +29,22 @@ class ModelLoader:
                           "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8":"/ckpt-26",
                           "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_2":"/ckpt-26",
                           "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8":"/ckpt-26",
+                          "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_4":"/ckpt-26",
+                          "ssd_mobilenet_v1_fpn_640x640_distilled_2":"/ckpt-1",
+                          "ssd_mobilenet_v1_fpn_640x640_distilled_3":"/ckpt-1",
+                          "ssd_mobilenet_v1_fpn_640x640_distilled_7":"/ckpt-1",
+                          "ssd_mobilenet_v1_fpn_640x640_distilled_30":"/ckpt-1",
+                          "my_efficientdet_d1_coco17_tpu-32":"/ckpt-301",
+                          "ssd_mobilenet_v1_fpn_640x640_distilled_6":"/ckpt-1",
                           "my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8": "/ckpt-51"}
   
 
     def log(self, message):
-        if self.save_log == True:
-            log = open("logs/log_" + str(self.start_time) + ".txt", "a")
-            log.write(message)
-            log.close()
+        #if self.save_log == True:
+            #log = open("logs/log_" + str(self.start_time) + ".txt", "a")
+            #log.write(message)
+            #log.close()
+        pass
 
     def print_message(self, message):
         print(message, end = '')
@@ -192,7 +200,7 @@ class detection:
     # OBJECT DETECTION
     #****************************************
 
-    #@tf.function
+    @tf.function
     def detect_fn(self, image):
         """Detect objects in image."""
 
@@ -212,11 +220,6 @@ class detection:
             # The model expects a batch of images, so add an axis with `tf.newaxis`.
             input_tensor = input_tensor[tf.newaxis, ...]
             detections = self.detection_model(input_tensor)
-        elif self.model_name[-10:] == "_distilled":
-           # Model oczekuje obrazu w rozmiarze (640, 640, 3), więc zmieniamy rozmiar wejściowego obrazu
-            resized_image = tf.image.resize(image_np, (640, 640))
-            input_tensor = tf.convert_to_tensor(np.expand_dims(resized_image, 0), dtype=tf.float32)
-            detections = self.detection_model(input_tensor)         
         else:
             detections = self.detect_fn(input_tensor)
             
@@ -247,7 +250,7 @@ class detection:
     def find_plate(self, image_name, ocr = True):
         start_detection = time.time()
         image_path = self.path_to_images_dir + '/' + image_name
-        self.model.print_message(f'{image_name}... ')
+        self.model.print_message(f'\n{image_name}... ')
         image, detections = self.detect_object(np.array(cv2.imread(image_path)))
         end_detection = time.time()
         self.model.print_message(f' || Detection time: {(end_detection-start_detection):.2f}s')
@@ -257,7 +260,7 @@ class detection:
             start_ocr = time.time()
             text, region = self.ocr(image, detections, self.detection_threshold, self.region_threshold)
             end_ocr = time.time()
-            self.model.print_message(f' || OCR time: {(end_ocr - start_ocr):.2f}s || {text}\n')
+            self.model.print_message(f' || OCR time: {(end_ocr - start_ocr):.2f}s || {text}')
 
             imageText = ""
             if len(text) > 0: 
@@ -270,21 +273,33 @@ class detection:
        
         return image, imageText
 
-    def detect_image(self, image_name, ocr = True):
+    def detect_image(self, image_name, ocr = True, save = False):
         image, imageText = self.find_plate(image_name, ocr)
         plt.figure(num=imageText)
         plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
         plt.show()
+        if save:
+            results_dir = os.path.join("results", self.model_name)
+            if not os.path.exists(results_dir):
+                os.makedirs(results_dir, exist_ok=True)
+            output_path = os.path.join(results_dir, imageText + ".jpg")
+            cv2.imwrite(output_path, image)
 
-    def detect_all_images(self, ocr = True):
+    def detect_all_images(self, ocr = True, save = False):
         plt.rcParams['figure.max_open_warning'] = len(self.image_names) + 1
         start_time = time.time()
         for image_name in self.image_names:
             image, imageText = self.find_plate(image_name, ocr)
             plt.figure(num=imageText)
             plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            if save:
+                results_dir = os.path.join("results", self.model_name)
+                if not os.path.exists(results_dir):
+                    os.makedirs(results_dir, exist_ok=True)
+                output_path = os.path.join(results_dir, imageText + ".jpg")
+                cv2.imwrite(output_path, image)
         end_time = time.time()
-        self.model.print_message(f"Number of images: {len(self.image_names)} || Total time: {(end_time-start_time):.2f}s\n")
+        self.model.print_message(f"\nNumber of images: {len(self.image_names)} || Total time: {(end_time-start_time):.2f}s\n")
         plt.show()          
 
     def detect_video(self, video_path, ocr=True):

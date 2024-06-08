@@ -69,7 +69,7 @@ def compute_iou(box1, box2):
 
 
 #@tf.function
-def match_predictions_to_ground_truth(pred_boxes, true_boxes, iou_threshold=0.5):
+def match_predictions_to_ground_truth(pred_boxes, true_boxes, iou_threshold=0.1):
     # Compute IoU between all predicted boxes and true boxes
     iou_matrix = compute_iou(pred_boxes, true_boxes)
 
@@ -100,20 +100,38 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
     temperature=10
     alpha=0.5
 
+    #preprocessed_images = []
+    #true_image_shapes = []
     image_count = 0
-    for image in dataset:
+    for image, (boxes, classes) in dataset:
         image_count +=1
+        #resized_image, true_image_shape = teacher_model.preprocess(image)
+        #preprocessed_images.append(resized_image)
+        #true_image_shapes.append(true_image_shape)
 
+    all_epoch_losses = []
     for epoch in range(epoch_num):
         start_time = time.time()
+        
+        losses_dict ={"distill": [],
+                      "localization": [],
+                      "classification": [],
+                      "total": [],
+                      "distill_avg": 0,
+                      "localization_avg": 0,
+                      "classification_avg": 0,
+                      "total_avg": 0
+                      }
+
         for image, (boxes, classes) in tqdm(dataset, total=image_count, desc=f"Epoch {epoch + 1}/{epoch_num}"):
-            teacher_detections, teachers_prediction_dict = detect_fn(image, teacher_model)
+            teacher_detections, teacher_prediction_dict = detect_fn(image, teacher_model)
             with tf.GradientTape() as tape:
                 student_detections, student_prediction_dict = detect_fn(image, student_model)
 
                 reshaped_classes, student_preds = reshape_classses(classes, student_prediction_dict)
 
                 classification_loss = classification_loss_fn(reshaped_classes, student_preds)
+                losses_dict["classification"].append(classification_loss)
 
                 matched_pred_boxes, matched_true_boxes = match_predictions_to_ground_truth(
                     student_prediction_dict['box_encodings'], boxes
@@ -121,25 +139,37 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
                 matched_pred_boxes = tf.reshape(matched_pred_boxes, [-1, 4])
                 matched_true_boxes = tf.reshape(matched_true_boxes, [-1, 4])
                 localization_loss = localization_loss_fn(matched_true_boxes, matched_pred_boxes)
+                losses_dict["localization"].append(localization_loss)
+
+                #losses_dict = student_model.loss(student_prediction_dict, true_image_shapes)
 
                 # Calculate distillation loss
                 distill_loss = distillation_loss_fn(
-                    tf.nn.softmax(teacher_detections['raw_detection_scores'] / temperature),
-                    tf.nn.softmax(student_detections['raw_detection_scores'] / temperature)
+                    tf.nn.softmax(teacher_prediction_dict['class_predictions_with_background'] / temperature),
+                    tf.nn.softmax(student_prediction_dict['class_predictions_with_background'] / temperature)
                 )
+                losses_dict["distill"].append(distill_loss)
 
                 total_loss = alpha * distill_loss + (1 - alpha) * (classification_loss + localization_loss)
+                losses_dict["total"].append(total_loss)
 
             gradients = tape.gradient(total_loss, student_model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, student_model.trainable_variables))
             #Zwolnienie pamięci GPU
-            tf.keras.backend.clear_session()
+            #tf.keras.backend.clear_session()
+    
+        losses_dict["distill_avg"] = np.mean(losses_dict["distill"])
+        losses_dict["localization_avg"] = np.mean(losses_dict["localization"])
+        losses_dict["classification_avg"] = np.mean(losses_dict["classification"])    
+        losses_dict["total_avg"] = np.mean(losses_dict["total"])
+        all_epoch_losses.append(losses_dict["total_avg"])
+
         end_time = time.time()
-        print(" - Time: {:.2f}s - Loss: {:.4f}".format(end_time - start_time, total_loss))
+        print(" - Time: {:.2f}s - | - Disitllation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - | - Total loss: {:.4f} ".format(end_time - start_time, losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["total_avg"]))
     end_distill = time.time()
     total_distill_time = end_distill - start_disitll
     print(f"Distillation finished in {total_distill_time:.2f}s || {total_distill_time/60:.2f}min || {total_distill_time/3600:.2f}h")
-    return student_model, total_loss
+    return student_model, all_epoch_losses
 
 def get_student_model(model_name):
     student_model_path = f"TensorFlow/workspace/training_demo/distil_models/{model_name}"
@@ -229,7 +259,7 @@ student_model = get_student_model(student_model_name)
 dataset = tf.compat.v1.data.TFRecordDataset(train_tfrecords_path)
 dataset = dataset.map(parse_function).batch(1)
 
-model, disitillation_loss_f = distill(epoch_num = 10,
+model, all_losses = distill(epoch_num = 10,
                                       dataset = dataset,
                                       teacher_model = teacher_model,
                                       teacher_name = teacher_model_name,
@@ -240,7 +270,7 @@ model, disitillation_loss_f = distill(epoch_num = 10,
                                       localization_loss_fn = tf.keras.losses.MeanSquaredError(),
                                       distillation_loss_fn = tf.keras.losses.KLDivergence())
 
-
 # Zapisanie modelu
 ckpt = tf.compat.v2.train.Checkpoint(model=model)
-ckpt.save(distilled_model_path + student_model_name + '_5/ckpt')
+ckpt.save(distilled_model_path + student_model_name + '_7/ckpt')
+print(f"Model {student_model_name} saved in {distilled_model_path + student_model_name + '_7/ckpt'}")
