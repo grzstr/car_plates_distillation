@@ -48,49 +48,6 @@ def reshape_classses(classes, student_prediction_dict):
 
     return reshaped_classes, student_preds
 
-@tf.function
-def compute_iou(box1, box2):
-    # Ensure boxes have correct shapes
-    box1 = tf.reshape(box1, [-1, 4])
-    box2 = tf.reshape(box2, [-1, 4])
-
-    
-    x1 = tf.maximum(box1[:, tf.newaxis, 0], box2[:, 0])
-    y1 = tf.maximum(box1[:, tf.newaxis, 1], box2[:, 1])
-    x2 = tf.minimum(box1[:, tf.newaxis, 2], box2[:, 2])
-    y2 = tf.minimum(box1[:, tf.newaxis, 3], box2[:, 3])
-
-    intersection = tf.maximum(0.0, x2 - x1) * tf.maximum(0.0, y2 - y1)
-    box1_area = (box1[:, 2] - box1[:, 0]) * (box1[:, 3] - box1[:, 1])
-    box2_area = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])
-
-    iou = intersection / (box1_area[:, tf.newaxis] + box2_area - intersection)
-    return iou
-
-
-#@tf.function
-def match_predictions_to_ground_truth(pred_boxes, true_boxes, iou_threshold=0.1):
-    #with tf.device('/CPU:0'):
-    valid_pred_indices = tf.reduce_any(tf.not_equal(pred_boxes, 0.0), axis=2)
-    pred_boxes = tf.boolean_mask(pred_boxes, valid_pred_indices)
-    
-    # Compute IoU between all predicted boxes and true boxes
-    iou_matrix = compute_iou(pred_boxes, true_boxes)
-
-    # Perform matching using the IoU matrix
-    matches = tf.argmax(iou_matrix, axis=1)
-    matched_iou = tf.reduce_max(iou_matrix, axis=1)
-
-    # Filter matches based on IoU threshold
-    valid_matches = matched_iou > iou_threshold
-    matched_indices = tf.where(valid_matches)[:, 0]  # Ensure we get 1D tensor of indices
-
-    matched_pred_boxes = tf.gather(pred_boxes[0], matched_indices)
-    matched_true_boxes = tf.gather(true_boxes, tf.gather(matches, matched_indices))
-    
-    return matched_pred_boxes, matched_true_boxes
-
-
 def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, classification_loss_fn, localization_loss_fn,  distillation_loss_fn):
     # Enable GPU dynamic memory allocation
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -104,14 +61,15 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
     temperature=10
     alpha=0.5
 
-    #preprocessed_images = []
-    #true_image_shapes = []
+    preprocessed_images = []
+    true_image_shapes = []
     image_count = 0
     for image, (boxes, classes) in dataset:
         image_count +=1
-        #resized_image, true_image_shape = teacher_model.preprocess(image)
-        #preprocessed_images.append(resized_image)
-        #true_image_shapes.append(true_image_shape)
+        resized_image, true_image_shape = teacher_model.preprocess(image)
+        preprocessed_images.append(resized_image)
+        true_image_shapes.append(true_image_shape)
+    true_image_shapes = tf.concat(true_image_shapes, 0)
 
     all_epoch_losses = []
     for epoch in range(epoch_num):
@@ -130,6 +88,9 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
         for image, (boxes, classes) in tqdm(dataset, total=image_count, desc=f"Epoch {epoch + 1}/{epoch_num}"):
             teacher_detections, teacher_prediction_dict = detect_fn(image, teacher_model)
             with tf.GradientTape() as tape:
+                student_model.provide_groundtruth(boxes, classes)
+
+
                 student_detections, student_prediction_dict = detect_fn(image, student_model)
 
                 reshaped_classes, student_preds = reshape_classses(classes, student_prediction_dict)
@@ -137,15 +98,10 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
                 classification_loss = classification_loss_fn(reshaped_classes, student_preds)
                 losses_dict["classification"].append(classification_loss)
 
-                matched_pred_boxes, matched_true_boxes = match_predictions_to_ground_truth(
-                    student_prediction_dict['box_encodings'], boxes
-                )
-                matched_pred_boxes = tf.reshape(matched_pred_boxes, [-1, 4])
-                matched_true_boxes = tf.reshape(matched_true_boxes, [-1, 4])
-                localization_loss = localization_loss_fn(matched_true_boxes, matched_pred_boxes)
-                losses_dict["localization"].append(localization_loss)
 
-                #losses_dict = student_model.loss(student_prediction_dict, true_image_shapes)
+                
+
+                losses_dict = student_model.loss(student_prediction_dict, true_image_shapes)
 
                 # Calculate distillation loss
                 distill_loss = distillation_loss_fn(
@@ -153,8 +109,9 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
                     tf.nn.softmax(student_prediction_dict['class_predictions_with_background'] / temperature)
                 )
                 losses_dict["distill"].append(distill_loss)
+              
 
-                total_loss = alpha * distill_loss + (1 - alpha) * (classification_loss + localization_loss)
+                total_loss = alpha * distill_loss + (1 - alpha) * (classification_loss)
                 losses_dict["total"].append(total_loss)
 
             gradients = tape.gradient(total_loss, student_model.trainable_variables)

@@ -23,73 +23,34 @@ def detect_fn(image, detection_model):
     return detections, prediction_dict
 
 #@tf.function
-def reshape_classses(classes, student_prediction_dict):
-    # Check shapes after reshaping
-    #print(f"Classes shape: {classes.shape}")
-    #print(f"Student predictions shape: {student_prediction_dict['class_predictions_with_background'].shape}")
-    
+def reshape_classes(classes, predicted_classes):
     class_batch_size, num_classes_per_image = tf.shape(classes)[0].numpy(), tf.shape(classes)[1].numpy()
     
     # Ensure classes and predictions are properly reshaped
-    num_classes = student_prediction_dict['class_predictions_with_background'].shape[-1]
+    num_classes = predicted_classes.shape[-1]
     flattened_classes = tf.reshape(classes, [-1])
     one_hot_classes = tf.one_hot(flattened_classes, depth=num_classes)
 
     # Repeat one-hot classes to match the number of predictions
-    num_predictions = student_prediction_dict['class_predictions_with_background'].shape[1]
+    num_predictions = predicted_classes.shape[1]
     reshaped_classes = tf.tile(one_hot_classes, [num_predictions, 1])
     reshaped_classes = tf.reshape(reshaped_classes, [-1, num_classes])
 
-    student_preds = tf.reshape(student_prediction_dict['class_predictions_with_background'], [-1, num_classes])
+    student_preds = tf.reshape(predicted_classes, [-1, num_classes])
     student_preds = tf.tile(student_preds, [num_classes_per_image, class_batch_size])
-    # Check shapes after reshaping
-    #print(f"Reshaped classes: {reshaped_classes.shape}")
-    #print(f"Reshaped student predictions: {student_preds.shape}")
-
     return reshaped_classes, student_preds
 
-@tf.function
-def compute_iou(box1, box2):
-    # Ensure boxes have correct shapes
-    box1 = tf.reshape(box1, [-1, 4])
-    box2 = tf.reshape(box2, [-1, 4])
+def reshape_boxes(boxes, predicted_boxes):
+     # Przekształcenie tensorów, aby miały zgodne kształty
+    num_predictions = tf.shape(predicted_boxes)[1]
 
-    
-    x1 = tf.maximum(box1[:, tf.newaxis, 0], box2[:, 0])
-    y1 = tf.maximum(box1[:, tf.newaxis, 1], box2[:, 1])
-    x2 = tf.minimum(box1[:, tf.newaxis, 2], box2[:, 2])
-    y2 = tf.minimum(box1[:, tf.newaxis, 3], box2[:, 3])
+    reshaped_boxes = tf.tile(boxes, [1, num_predictions, 1])
+    reshaped_boxes = tf.reshape(reshaped_boxes, [-1, 4])
+    reshaped_encodings = tf.reshape(predicted_boxes, [-1, 4])
+    box_batch_size, num_boxes_per_image = tf.shape(boxes)[0].numpy(), tf.shape(boxes)[1].numpy()
+    reshaped_encodings = tf.tile(reshaped_encodings, [num_boxes_per_image, box_batch_size])   
 
-    intersection = tf.maximum(0.0, x2 - x1) * tf.maximum(0.0, y2 - y1)
-    box1_area = (box1[:, 2] - box1[:, 0]) * (box1[:, 3] - box1[:, 1])
-    box2_area = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])
-
-    iou = intersection / (box1_area[:, tf.newaxis] + box2_area - intersection)
-    return iou
-
-
-#@tf.function
-def match_predictions_to_ground_truth(pred_boxes, true_boxes, iou_threshold=0.1):
-    #with tf.device('/CPU:0'):
-    valid_pred_indices = tf.reduce_any(tf.not_equal(pred_boxes, 0.0), axis=2)
-    pred_boxes = tf.boolean_mask(pred_boxes, valid_pred_indices)
-    
-    # Compute IoU between all predicted boxes and true boxes
-    iou_matrix = compute_iou(pred_boxes, true_boxes)
-
-    # Perform matching using the IoU matrix
-    matches = tf.argmax(iou_matrix, axis=1)
-    matched_iou = tf.reduce_max(iou_matrix, axis=1)
-
-    # Filter matches based on IoU threshold
-    valid_matches = matched_iou > iou_threshold
-    matched_indices = tf.where(valid_matches)[:, 0]  # Ensure we get 1D tensor of indices
-
-    matched_pred_boxes = tf.gather(pred_boxes[0], matched_indices)
-    matched_true_boxes = tf.gather(true_boxes, tf.gather(matches, matched_indices))
-    
-    return matched_pred_boxes, matched_true_boxes
-
+    return reshaped_boxes, reshaped_encodings
 
 def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, classification_loss_fn, localization_loss_fn,  distillation_loss_fn):
     # Enable GPU dynamic memory allocation
@@ -104,14 +65,10 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
     temperature=10
     alpha=0.5
 
-    #preprocessed_images = []
-    #true_image_shapes = []
+
     image_count = 0
     for image, (boxes, classes) in dataset:
         image_count +=1
-        #resized_image, true_image_shape = teacher_model.preprocess(image)
-        #preprocessed_images.append(resized_image)
-        #true_image_shapes.append(true_image_shape)
 
     all_epoch_losses = []
     for epoch in range(epoch_num):
@@ -132,20 +89,13 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
             with tf.GradientTape() as tape:
                 student_detections, student_prediction_dict = detect_fn(image, student_model)
 
-                reshaped_classes, student_preds = reshape_classses(classes, student_prediction_dict)
-
+                reshaped_classes, student_preds = reshape_classes(classes, student_prediction_dict['class_predictions_with_background'])
                 classification_loss = classification_loss_fn(reshaped_classes, student_preds)
-                losses_dict["classification"].append(classification_loss)
+                losses_dict["classification"].append(classification_loss)            
 
-                matched_pred_boxes, matched_true_boxes = match_predictions_to_ground_truth(
-                    student_prediction_dict['box_encodings'], boxes
-                )
-                matched_pred_boxes = tf.reshape(matched_pred_boxes, [-1, 4])
-                matched_true_boxes = tf.reshape(matched_true_boxes, [-1, 4])
-                localization_loss = localization_loss_fn(matched_true_boxes, matched_pred_boxes)
+                reshaped_boxes, reshaped_encodings = reshape_boxes(boxes, student_prediction_dict['box_encodings'])
+                localization_loss = localization_loss_fn(reshaped_boxes, reshaped_encodings)
                 losses_dict["localization"].append(localization_loss)
-
-                #losses_dict = student_model.loss(student_prediction_dict, true_image_shapes)
 
                 # Calculate distillation loss
                 distill_loss = distillation_loss_fn(
