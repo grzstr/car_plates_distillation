@@ -86,6 +86,7 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
 
         for image, (boxes, classes) in tqdm(dataset, total=image_count, desc=f"Epoch {epoch + 1}/{epoch_num}"):
             teacher_detections, teacher_prediction_dict = detect_fn(image, teacher_model)
+
             with tf.GradientTape() as tape:
                 student_detections, student_prediction_dict = detect_fn(image, student_model)
 
@@ -213,7 +214,7 @@ student_model = get_student_model(student_model_name)
 dataset = tf.compat.v1.data.TFRecordDataset(train_tfrecords_path)
 dataset = dataset.map(parse_function).batch(1)
 
-model, all_losses = distill(epoch_num = 10,
+model, all_losses = distill(epoch_num = 50,
                                       dataset = dataset,
                                       teacher_model = teacher_model,
                                       teacher_name = teacher_model_name,
@@ -226,5 +227,6 @@ model, all_losses = distill(epoch_num = 10,
 
 # Zapisanie modelu
 ckpt = tf.compat.v2.train.Checkpoint(model=model)
-ckpt.save(distilled_model_path + student_model_name + '_7/ckpt')
-print(f"Model {student_model_name} saved in {distilled_model_path + student_model_name + '_7/ckpt'}")
+saved_model_path = distilled_model_path + student_model_name + '_8/ckpt'
+ckpt.save(saved_model_path)
+print(f"Model {student_model_name} saved in {saved_model_path}")

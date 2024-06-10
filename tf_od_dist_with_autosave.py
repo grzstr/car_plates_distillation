@@ -39,53 +39,19 @@ def reshape_classes(classes, predicted_classes):
 
     student_preds = tf.reshape(predicted_classes, [-1, num_classes])
     student_preds = tf.tile(student_preds, [num_classes_per_image, class_batch_size])
-
     return reshaped_classes, student_preds
 
-@tf.function
-def compute_iou(box1, box2):
-    # Ensure boxes have correct shapes
-    box1 = tf.reshape(box1, [-1, 4])
-    box2 = tf.reshape(box2, [-1, 4])
+def reshape_boxes(boxes, predicted_boxes):
+     # Przekształcenie tensorów, aby miały zgodne kształty
+    num_predictions = tf.shape(predicted_boxes)[1]
 
-    
-    x1 = tf.maximum(box1[:, tf.newaxis, 0], box2[:, 0])
-    y1 = tf.maximum(box1[:, tf.newaxis, 1], box2[:, 1])
-    x2 = tf.minimum(box1[:, tf.newaxis, 2], box2[:, 2])
-    y2 = tf.minimum(box1[:, tf.newaxis, 3], box2[:, 3])
+    reshaped_boxes = tf.tile(boxes, [1, num_predictions, 1])
+    reshaped_boxes = tf.reshape(reshaped_boxes, [-1, 4])
+    reshaped_encodings = tf.reshape(predicted_boxes, [-1, 4])
+    box_batch_size, num_boxes_per_image = tf.shape(boxes)[0].numpy(), tf.shape(boxes)[1].numpy()
+    reshaped_encodings = tf.tile(reshaped_encodings, [num_boxes_per_image, box_batch_size])   
 
-    intersection = tf.maximum(0.0, x2 - x1) * tf.maximum(0.0, y2 - y1)
-    box1_area = (box1[:, 2] - box1[:, 0]) * (box1[:, 3] - box1[:, 1])
-    box2_area = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])
-
-    iou = intersection / (box1_area[:, tf.newaxis] + box2_area - intersection)
-    return iou
-
-
-#@tf.function
-def match_predictions_to_ground_truth(pred_boxes, true_boxes, iou_threshold=0.1):
-    #with tf.device('/CPU:0'):
-    valid_pred_indices = tf.reduce_any(tf.not_equal(pred_boxes, 0.0), axis=2)
-    pred_boxes = tf.boolean_mask(pred_boxes, valid_pred_indices)
-    
-    # Compute IoU between all predicted boxes and true boxes
-    iou_matrix = compute_iou(pred_boxes, true_boxes)
-
-    # Perform matching using the IoU matrix
-    matches = tf.argmax(iou_matrix, axis=1)
-    matched_iou = tf.reduce_max(iou_matrix, axis=1)
-
-    # Filter matches based on IoU threshold
-    valid_matches = matched_iou > iou_threshold
-    matched_indices = tf.where(valid_matches)[:, 0]  # Ensure we get 1D tensor of indices
-
-    matched_pred_boxes = tf.gather(pred_boxes[0], matched_indices)
-    matched_true_boxes = tf.gather(true_boxes, tf.gather(matches, matched_indices))
-    
-    matched_pred_boxes = tf.reshape(matched_pred_boxes, [-1, 4])
-    matched_true_boxes = tf.reshape(matched_true_boxes, [-1, 4])
-
-    return matched_pred_boxes, matched_true_boxes
+    return reshaped_boxes, reshaped_encodings
 
 def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, classification_loss_fn, localization_loss_fn, distillation_loss_fn, save_every_n_epochs=10, checkpoint_path=None):
     # Enable GPU dynamic memory allocation
@@ -140,11 +106,8 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
                 classification_loss = classification_loss_fn(reshaped_classes, student_preds)
                 losses_dict["classification"].append(classification_loss)
 
-                matched_pred_boxes, matched_true_boxes = match_predictions_to_ground_truth(
-                    student_prediction_dict['box_encodings'], boxes
-                )
-
-                localization_loss = localization_loss_fn(matched_true_boxes, matched_pred_boxes)
+                reshaped_boxes, reshaped_encodings = reshape_boxes(boxes, student_prediction_dict['box_encodings'])
+                localization_loss = localization_loss_fn(reshaped_boxes, reshaped_encodings)
                 losses_dict["localization"].append(localization_loss)
 
                 # Calculate distillation loss

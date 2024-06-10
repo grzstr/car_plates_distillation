@@ -33,7 +33,9 @@ class ModelLoader:
                           "ssd_mobilenet_v1_fpn_640x640_distilled_2":"/ckpt-1",
                           "ssd_mobilenet_v1_fpn_640x640_distilled_3":"/ckpt-1",
                           "ssd_mobilenet_v1_fpn_640x640_distilled_7":"/ckpt-1",
+                          "ssd_mobilenet_v1_fpn_640x640_distilled_8":"/ckpt-2",
                           "ssd_mobilenet_v1_fpn_640x640_distilled_30":"/ckpt-1",
+                          "ssd_mobilenet_v1_fpn_640x640_distilled_old":"/ckpt-1",
                           "my_efficientdet_d1_coco17_tpu-32":"/ckpt-301",
                           "ssd_mobilenet_v1_fpn_640x640_distilled_6":"/ckpt-1",
                           "my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8": "/ckpt-51"}
