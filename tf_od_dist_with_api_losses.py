@@ -21,59 +21,7 @@ def detect_fn(image, detection_model):
     prediction_dict = detection_model.predict(image, shapes)
     detections = detection_model.postprocess(prediction_dict, shapes)
 
-    return detections, prediction_dict
-
-#@tf.function
-def compute_iou(box1, box2):
-    box1 = tf.reshape(box1, [-1, 4])
-    box2 = tf.reshape(box2, [-1, 4])
-
-    x1 = tf.maximum(box1[:, tf.newaxis, 0], box2[:, 0])
-    y1 = tf.maximum(box1[:, tf.newaxis, 1], box2[:, 1])
-    x2 = tf.minimum(box1[:, tf.newaxis, 2], box2[:, 2])
-    y2 = tf.minimum(box1[:, tf.newaxis, 3], box2[:, 3])
-
-    intersection = tf.maximum(0.0, x2 - x1) * tf.maximum(0.0, y2 - y1)
-    box1_area = (box1[:, 2] - box1[:, 0]) * (box1[:, 3] - box1[:, 1])
-    box2_area = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])
-
-    iou = intersection / (box1_area[:, tf.newaxis] + box2_area - intersection)
-    return iou
-
-def normalize_boxes(boxes):
-    # Assuming boxes are in the format [ymin, xmin, ymax, xmax]
-    boxes = tf.clip_by_value(boxes, 0.0, 1.0)
-    return boxes
-
-
-#@tf.function
-def match_predictions_to_ground_truth(pred_boxes, true_boxes, pred_logits, true_labels, iou_threshold=0.01):
-    #with tf.device('/CPU:0'):
-    pred_boxes = normalize_boxes(pred_boxes)
-    true_boxes = normalize_boxes(true_boxes)    
-
-    # Compute IoU between all predicted boxes and true boxes
-    iou_matrix = compute_iou(pred_boxes, true_boxes)
-
-    # Perform matching using the IoU matrix
-    matches = tf.argmax(iou_matrix, axis=1)
-    matched_iou = tf.reduce_max(iou_matrix, axis=1)
-
-    # Filter matches based on IoU threshold
-    valid_matches = matched_iou > iou_threshold
-    matched_indices = tf.where(valid_matches)[:, 0]  # Ensure we get 1D tensor of indices
-
-    matched_pred_boxes = tf.gather(pred_boxes[0], matched_indices)
-    matched_true_boxes = tf.gather(true_boxes, tf.gather(matches, matched_indices))
-    matched_pred_logits = tf.gather(pred_logits, matched_indices)    
-    matched_true_labels = tf.gather(true_labels, tf.gather(matches, matched_indices))
-
-    matched_pred_boxes = tf.reshape(matched_pred_boxes, [-1, 4])
-    matched_true_boxes = tf.reshape(matched_true_boxes, [-1, 4])
-    matched_pred_logits = tf.reshape(matched_pred_logits, [-1, 4])
-    matched_true_labels = tf.reshape(matched_true_labels, [-1, 4])
-
-    return matched_pred_boxes, matched_true_boxes, matched_pred_logits, matched_true_labels
+    return detections, prediction_dict, shapes, image
 
 def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, classification_loss_fn, localization_loss_fn, distillation_loss_fn, save_every_n_epochs=10, checkpoint_path=None):
     # Enable GPU dynamic memory allocation
@@ -100,13 +48,25 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
         if ckpt_manager.latest_checkpoint:
             ckpt.restore(ckpt_manager.latest_checkpoint)
             print(f"Restored from {ckpt_manager.latest_checkpoint}")
+            x = 1
+            while(True):
+                if ckpt_manager.latest_checkpoint[-(x+1)] == "-":
+                    restored_epoch = int(ckpt_manager.latest_checkpoint[-x:])
+                    break
+                x += 1
+            restore = True
         else:
             print("Starting training from scratch.")
+            restore = False
 
     all_epoch_losses = []
     for epoch in range(epoch_num):
         start_time = time.time()
         
+        if restore == True:
+            epoch = restored_epoch
+            restore = False
+
         losses_dict = {
             "distill": [],
             "localization": [],
@@ -117,25 +77,52 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
             "classification_avg": 0,
             "total_avg": 0
         }
-
+        i = 0
         for image, (boxes, classes) in tqdm(dataset, total=image_count, desc=f"Epoch {epoch + 1}/{epoch_num}"):
-            teacher_detections, teacher_prediction_dict = detect_fn(image, teacher_model)
-
+            teacher_detections, teacher_prediction_dict, _, _ = detect_fn(image, teacher_model)
+            i+=1
             with tf.GradientTape() as tape:
-                student_detections, student_prediction_dict = detect_fn(image, student_model)
+                student_detections, student_prediction_dict, shapes, pre_image = detect_fn(image, student_model)
 
-                matched_pred_boxes, matched_true_boxes, matched_pred_logits, matched_true_labels = match_predictions_to_ground_truth(
-                    student_prediction_dict['box_encodings'], 
-                    boxes,
-                    student_prediction_dict['class_predictions_with_background'],
-                    classes
-                )
+                boxes = tf.squeeze(boxes, axis=0)  # Usunięcie zbędnego wymiaru, jeśli jest dodany
 
-                classification_loss = classification_loss_fn(matched_true_labels, matched_pred_logits)
-                losses_dict["classification"].append(classification_loss)
+                #class_batch_size, num_classes_per_image = tf.shape(classes)[0].numpy(), tf.shape(classes)[1].numpy()
+                #if i == 7:
+                #   boxes = tf.tile(boxes, [3, 1])
+                #shapes = tf.tile(shapes, [1, 2])
+                '''
+                if boxes.shape != (1, 4):
+                    print(f"Nieoczekiwany kształt `boxes`: {boxes.shape}")
+                    if boxes.shape == (2, 4):
+                        # Przekształcenie z (2, 4) na (1, 2)
+                        boxes = tf.reshape(boxes[0, :2], (1, 2))
+                        boxes = tf.tile(boxes, [1, 2])
 
-                localization_loss = localization_loss_fn(matched_true_boxes, matched_pred_boxes)
+                    if boxes.shape == (1, 2):
+                        # Przekształcenie z (1, 2) na (3, 2) - dodanie brakujących wartości
+                        boxes = tf.concat((boxes, tf.zeros((2, 2))), axis=0)   
+                '''
+                
+                if boxes.shape != (1, 4):
+                    #print(f"Nieoczekiwany kształt `boxes`: {boxes.shape}")
+                    boxes = tf.reshape(boxes[0, :2], (1, 2))
+                    boxes = tf.tile(boxes, [1, 2])
+
+                    classes = tf.constant([1,2], dtype=tf.int32)
+                    classes = tf.reshape(classes, [-1])
+                    classes = tf.reshape(classes[0], (1, 1))
+                    
+
+
+
+                student_model.provide_groundtruth(groundtruth_boxes_list=[boxes], groundtruth_classes_list=[tf.cast(classes, tf.float32)])
+                
+                losses = student_model.loss(student_prediction_dict, shapes)
+
+                localization_loss = losses['Loss/localization_loss']
                 losses_dict["localization"].append(localization_loss)
+                classification_loss = losses['Loss/classification_loss']
+                losses_dict["classification"].append(classification_loss)
 
                 # Calculate distillation loss
 
@@ -164,7 +151,7 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
         # Save checkpoint every save_every_n_epochs epochs
         if checkpoint_path and (epoch + 1) % save_every_n_epochs == 0:
             ckpt_save_path = ckpt_manager.save()
-            print(f"Checkpoint saved at {ckpt_save_path}")
+            print(f"Checkpoint saved at {ckpt_save_path}\n")
 
     end_distill = time.time()
     total_distill_time = end_distill - start_distill
@@ -181,7 +168,8 @@ def get_student_model(model_name, model_config_path, distilled_model_path):
     configs = config_util.get_configs_from_pipeline_file(model_config_path + model_name + "/pipeline.config")
     model_config = configs['model']
     model = model_builder.build(model_config=model_config, is_training=True)
-
+    distilled_model_name = model_name + f"_distilled_16"
+    """
     i=0
     while(True):
         distilled_model_name = model_name + f"_distilled_{i}"
@@ -192,7 +180,7 @@ def get_student_model(model_name, model_config_path, distilled_model_path):
             break
         else:
             i+=1
-
+    """
     return model, distilled_model_name
 
 def load_model(model_name, path_to_model_dir):
@@ -259,6 +247,7 @@ def parse_function(example_proto):
     boxes = tf.stack([ymin, xmin, ymax, xmax], axis=1)
     return image, (boxes, classes)
 
+
 teacher_model_name = "my_ssd_resnet50_v1_fpn"
 student_model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8"
 label_filename = "label_map.pbtxt"
@@ -276,16 +265,20 @@ dataset = tf.compat.v1.data.TFRecordDataset(train_tfrecords_path)
 dataset = dataset.map(parse_function).batch(1)
 
 model, all_losses = distill(
-    epoch_num=10,
+    epoch_num=50,
     dataset=dataset,
     teacher_model=teacher_model,
     teacher_name=teacher_model_name,
     student_model=student_model,
     student_name=student_model_name,
     optimizer=tf.keras.optimizers.Adam(),
-    classification_loss_fn=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+    classification_loss_fn=tf.keras.losses.CategoricalCrossentropy(from_logits=True),
     localization_loss_fn=tf.keras.losses.MeanSquaredError(),
     distillation_loss_fn=tf.keras.losses.KLDivergence(),
     save_every_n_epochs=1,
     checkpoint_path= distilled_model_path + distilled_model_name 
 )
+# Zapisanie modelu
+ckpt = tf.compat.v2.train.Checkpoint(model=model)
+ckpt.save(distilled_model_path + distilled_model_name + '/Final/ckpt')
+print(f"Model {student_model_name} saved in {distilled_model_path + distilled_model_name + '/Final/ckpt'}")

@@ -39,7 +39,10 @@ from platesdetection import *
 #model_name = "MobileNet_distilled"
 #model_name = "ssd_mobilenet_v1_fpn_640x640_distilled_8"
 #model_name = "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_4"
-model_name = "ssd_mobilenet_v1_fpn_640x640_distilled_8"
+#model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_7"
+#model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_15"
+model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_16"
+
 
 #model_name = "my_ssd_resnet50_v1_fpn"
 #model_name = "my_ssd_resnet50_v1_fpn_exported"
