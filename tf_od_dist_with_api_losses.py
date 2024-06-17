@@ -23,6 +23,20 @@ def detect_fn(image, detection_model):
 
     return detections, prediction_dict, shapes, image
 
+def reshape(boxes, classes):
+    boxes = tf.squeeze(boxes, axis=0)  # Usunięcie zbędnego wymiaru, jeśli jest dodany
+    if boxes.shape != (1, 4):
+        #print(f"Nieoczekiwany kształt `boxes`: {boxes.shape}")
+        boxes = tf.reshape(boxes[0, :2], (1, 2))
+        boxes = tf.tile(boxes, [1, 2])
+
+        classes = tf.constant([1,2], dtype=tf.int32)
+        classes = tf.reshape(classes, [-1])
+        classes = tf.reshape(classes[0], (1, 1))
+
+    return boxes, classes
+                    
+
 def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, classification_loss_fn, localization_loss_fn, distillation_loss_fn, save_every_n_epochs=10, checkpoint_path=None):
     # Enable GPU dynamic memory allocation
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -40,6 +54,8 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
     for image, (boxes, classes) in dataset:
         image_count += 1
 
+    start_step = 0
+
     # Initialize checkpoint manager
     if checkpoint_path:
         ckpt = tf.compat.v2.train.Checkpoint(model=student_model, optimizer=optimizer)
@@ -51,21 +67,21 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
             x = 1
             while(True):
                 if ckpt_manager.latest_checkpoint[-(x+1)] == "-":
-                    restored_epoch = int(ckpt_manager.latest_checkpoint[-x:])
+                    start_step = int(ckpt_manager.latest_checkpoint[-x:])
                     break
                 x += 1
-            restore = True
         else:
             print("Starting training from scratch.")
-            restore = False
+            start_step = 0
+
 
     all_epoch_losses = []
-    for epoch in range(epoch_num):
+    for epoch in range(start_step, epoch_num):
         start_time = time.time()
-        
-        if restore == True:
-            epoch = restored_epoch
-            restore = False
+
+        is_training = True
+        student_model._is_training = is_training  # pylint: disable=protected-access
+        tf.keras.backend.set_learning_phase(is_training)
 
         losses_dict = {
             "distill": [],
@@ -84,38 +100,8 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
             with tf.GradientTape() as tape:
                 student_detections, student_prediction_dict, shapes, pre_image = detect_fn(image, student_model)
 
-                boxes = tf.squeeze(boxes, axis=0)  # Usunięcie zbędnego wymiaru, jeśli jest dodany
-
-                #class_batch_size, num_classes_per_image = tf.shape(classes)[0].numpy(), tf.shape(classes)[1].numpy()
-                #if i == 7:
-                #   boxes = tf.tile(boxes, [3, 1])
-                #shapes = tf.tile(shapes, [1, 2])
-                '''
-                if boxes.shape != (1, 4):
-                    print(f"Nieoczekiwany kształt `boxes`: {boxes.shape}")
-                    if boxes.shape == (2, 4):
-                        # Przekształcenie z (2, 4) na (1, 2)
-                        boxes = tf.reshape(boxes[0, :2], (1, 2))
-                        boxes = tf.tile(boxes, [1, 2])
-
-                    if boxes.shape == (1, 2):
-                        # Przekształcenie z (1, 2) na (3, 2) - dodanie brakujących wartości
-                        boxes = tf.concat((boxes, tf.zeros((2, 2))), axis=0)   
-                '''
-                
-                if boxes.shape != (1, 4):
-                    #print(f"Nieoczekiwany kształt `boxes`: {boxes.shape}")
-                    boxes = tf.reshape(boxes[0, :2], (1, 2))
-                    boxes = tf.tile(boxes, [1, 2])
-
-                    classes = tf.constant([1,2], dtype=tf.int32)
-                    classes = tf.reshape(classes, [-1])
-                    classes = tf.reshape(classes[0], (1, 1))
-                    
-
-
-
-                student_model.provide_groundtruth(groundtruth_boxes_list=[boxes], groundtruth_classes_list=[tf.cast(classes, tf.float32)])
+                reshaped_boxes, reshaped_classes = reshape(boxes, classes)
+                student_model.provide_groundtruth(groundtruth_boxes_list=[reshaped_boxes], groundtruth_classes_list=[tf.cast(reshaped_classes, tf.float32)])
                 
                 losses = student_model.loss(student_prediction_dict, shapes)
 
@@ -148,11 +134,13 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
         end_time = time.time()
         print(" - Time: {:.2f}s - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - | - Total loss: {:.4f} ".format(end_time - start_time, losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["total_avg"]))
 
+        
         # Save checkpoint every save_every_n_epochs epochs
         if checkpoint_path and (epoch + 1) % save_every_n_epochs == 0:
             ckpt_save_path = ckpt_manager.save()
             print(f"Checkpoint saved at {ckpt_save_path}\n")
 
+            
     end_distill = time.time()
     total_distill_time = end_distill - start_distill
     print(f"Distillation finished in {total_distill_time:.2f}s || {total_distill_time / 60:.2f}min || {total_distill_time / 3600:.2f}h")
@@ -162,14 +150,14 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
         ckpt_save_path = ckpt_manager.save()
         print(f"Final checkpoint saved at {ckpt_save_path}")
 
+        
     return student_model, all_epoch_losses
 
 def get_student_model(model_name, model_config_path, distilled_model_path):
     configs = config_util.get_configs_from_pipeline_file(model_config_path + model_name + "/pipeline.config")
     model_config = configs['model']
     model = model_builder.build(model_config=model_config, is_training=True)
-    distilled_model_name = model_name + f"_distilled_16"
-    """
+    #distilled_model_name = model_name + f"_distilled_16"
     i=0
     while(True):
         distilled_model_name = model_name + f"_distilled_{i}"
@@ -180,7 +168,7 @@ def get_student_model(model_name, model_config_path, distilled_model_path):
             break
         else:
             i+=1
-    """
+    
     return model, distilled_model_name
 
 def load_model(model_name, path_to_model_dir):
@@ -265,7 +253,7 @@ dataset = tf.compat.v1.data.TFRecordDataset(train_tfrecords_path)
 dataset = dataset.map(parse_function).batch(1)
 
 model, all_losses = distill(
-    epoch_num=50,
+    epoch_num=10,
     dataset=dataset,
     teacher_model=teacher_model,
     teacher_name=teacher_model_name,
@@ -280,5 +268,5 @@ model, all_losses = distill(
 )
 # Zapisanie modelu
 ckpt = tf.compat.v2.train.Checkpoint(model=model)
-ckpt.save(distilled_model_path + distilled_model_name + '/Final/ckpt')
-print(f"Model {student_model_name} saved in {distilled_model_path + distilled_model_name + '/Final/ckpt'}")
+ckpt.save(distilled_model_path + distilled_model_name + '/ckpt')
+print(f"Model {student_model_name} saved in {distilled_model_path + distilled_model_name + '/ckpt'}")
