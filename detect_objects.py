@@ -41,7 +41,9 @@ from platesdetection import *
 #model_name = "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_4"
 #model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_7"
 #model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_15"
-model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_27"
+#model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_27"
+#model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_38"
+#model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_40"
 
 
 #model_name = "my_ssd_resnet50_v1_fpn"
@@ -51,6 +53,8 @@ model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_27"
 #model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8"
 #model_name = "my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8"
 #model_name = "my_efficientdet_d1_coco17_tpu-32"
+#model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_42"
+model_name = "my_ssd_resnet50_v1_fpn_distilled_1"
 
 video_path = "TensorFlow/workspace/training_demo/videos/demo.mp4"
 path_to_images_dir = "TensorFlow/workspace/training_demo/images/test"
@@ -60,5 +64,5 @@ path_to_images_dir = "TensorFlow/workspace/training_demo/images/test"
 
 #model.download_model(URL)
 detector = detection(model_name, path_to_images_dir)
-detector.detect_all_images(ocr=False, save=True)
+detector.detect_all_images(ocr=True, save=True)
 #detector.detect_video(video_path, False)

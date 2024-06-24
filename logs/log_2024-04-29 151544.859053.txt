@@ -1,1 +1,0 @@
-Model faster_rcnn_inception_resnet_v2_atrous_oid_14_10_2017 downloaded successfully!

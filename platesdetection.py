@@ -23,39 +23,27 @@ class ModelLoader:
         self.downloaded_models_dir = "TensorFlow/workspace/training_demo/pre-trained_models/"
         self.exported_model_dir = "TensorFlow/workspace/training_demo/exported-models/"
         self.distilled_model_path = "TensorFlow/workspace/training_demo/distil_models/"
-        self.ckpt_dict = {"my_ssd_resnet50_v1_fpn":'/ckpt-31',
-                          "my_ssd_resnet101_v1_fpn_640x640_coco17_tpu-8":"/ckpt-28",
-                          "my_ssd_resnet101_v1_fpn_640x640_coco17_tpu-8_3":"/ckpt-26",
-                          "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8":"/ckpt-26",
-                          "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_2":"/ckpt-26",
-                          "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8":"/ckpt-26",
-                          "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_4":"/ckpt-26",
-                          "ssd_mobilenet_v1_fpn_640x640_distilled_2":"/ckpt-1",
-                          "ssd_mobilenet_v1_fpn_640x640_distilled_3":"/ckpt-1",
-                          "ssd_mobilenet_v1_fpn_640x640_distilled_7":"/ckpt-1",
-                          "ssd_mobilenet_v1_fpn_640x640_distilled_8":"/ckpt-2",
-                          "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_7":"/ckpt-1",
-                          "ssd_mobilenet_v1_fpn_640x640_distilled_30":"/ckpt-1",
-                          "ssd_mobilenet_v1_fpn_640x640_distilled_old":"/ckpt-1",
-                          "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_15": "/ckpt-11",
-                          "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_16": "/ckpt-73",
-                          "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_17": "/ckpt-1",
-                          "my_efficientdet_d1_coco17_tpu-32":"/ckpt-301",
-                          "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_27": "/ckpt-11",
-                          "ssd_mobilenet_v1_fpn_640x640_distilled_6":"/ckpt-1",
-                          "my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8": "/ckpt-51"}
-  
 
     def log(self, message):
-        #if self.save_log == True:
-            #log = open("logs/log_" + str(self.start_time) + ".txt", "a")
-            #log.write(message)
-            #log.close()
-        pass
+        if self.save_log == True:
+            log = open("logs/detection/log_" + str(self.start_time).split(".")[0].replace(":", "-") + ".txt", "a")
+            log.write(message)
+            log.close()
+        #pass
 
     def print_message(self, message):
         print(message, end = '')
         self.log(message)
+
+    def find_last_checkpoint(self, model_path):
+        ckpt_files = os.listdir(model_path)
+        ckpt_numbers = []
+        for ckpt in ckpt_files:
+            if ckpt.startswith("ckpt-"):
+                ckpt_numbers.append(int(ckpt.split(".")[0].split("-")[1]))
+        last_ckpt_number = str(max(ckpt_numbers))
+        last_ckpt = "ckpt-" + last_ckpt_number
+        return last_ckpt
 
     def load_from_saved_model(self, model_name):
         self.print_message("\n[Loading TF2 Saved Model]\n")
@@ -88,7 +76,12 @@ class ModelLoader:
         return detection_model
 
     def load_from_ckpt(self, model_name):
-        self.path_to_model_dir += model_name
+        if "distilled" in model_name:
+            model_path = self.distilled_model_path
+        else:
+            model_path = self.path_to_model_dir
+
+        model_path += model_name
         tf.get_logger().setLevel('ERROR')           # Suppress TensorFlow logging (2)
 
         # Enable GPU dynamic memory allocation
@@ -101,26 +94,25 @@ class ModelLoader:
         start_time = time.time()
 
         # Load pipeline config and build a detection model
-        configs = config_util.get_configs_from_pipeline_file(self.path_to_model_dir + "/pipeline.config")
+        configs = config_util.get_configs_from_pipeline_file(model_path + "/pipeline.config")
         model_config = configs['model']
         
         detection_model = model_builder.build(model_config=model_config, is_training=False)
 
         # Restore checkpoint
+        last_ckpt = self.find_last_checkpoint(model_path)
         ckpt = tf.compat.v2.train.Checkpoint(model=detection_model)
-        ckpt.restore(self.path_to_model_dir + self.ckpt_dict[model_name]).expect_partial()
+        ckpt.restore(model_path + "/" + last_ckpt).expect_partial()
 
         end_time = time.time()
         elapsed_time = end_time - start_time
-        self.print_message(f'The model has been loaded - {elapsed_time:.2f}s\n\n')
+        self.print_message(f'The model has been loaded ({last_ckpt}) - {elapsed_time:.2f}s\n\n')
 
         return detection_model
     
     def load_model(self, model_name):
         if model_name[-9:] == "_exported" or model_name[-6:] == "_keras":
             detection_model = self.load_from_saved_model(model_name)
-        elif model_name[-10:] == "_distilled":
-            detection_model = self.load_from_saved_model_keras(model_name)
         else:
             detection_model = self.load_from_ckpt(model_name)
 

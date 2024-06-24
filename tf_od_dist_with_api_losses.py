@@ -2,16 +2,27 @@ import tensorflow as tf
 from object_detection.builders import model_builder
 from object_detection.utils import config_util
 from object_detection.utils import label_map_util
-from object_detection.utils import dataset_util
 import numpy as np
-import cv2
 import time
+import pandas as pd
 import os
 import shutil
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from tqdm import tqdm
 
+START_TIME = time.time()
+SAVE_LOG = True
 
+def log(message):
+    if SAVE_LOG == True:
+        log = open("logs/distillation/log_" + str(START_TIME).split(".")[0].replace(":", "-") + ".txt", "a")
+        log.write(message)
+        log.close()
+    #pass
+
+def print_message(message):
+    print(message, end = '')
+    log(message)
 
 #@tf.function
 def detect_fn(image, detection_model):
@@ -26,7 +37,7 @@ def detect_fn(image, detection_model):
 def reshape(boxes, classes):
     boxes = tf.squeeze(boxes, axis=0)  # Usunięcie zbędnego wymiaru, jeśli jest dodany
     if boxes.shape != (1, 4):
-        #print(f"Nieoczekiwany kształt `boxes`: {boxes.shape}")
+        #print_message(f"Nieoczekiwany kształt `boxes`: {boxes.shape}")
         boxes = tf.reshape(boxes[0, :2], (1, 2))
         boxes = tf.tile(boxes, [1, 2])
 
@@ -36,15 +47,14 @@ def reshape(boxes, classes):
 
     return boxes, classes
                     
-
 def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, classification_loss_fn, localization_loss_fn, distillation_loss_fn, save_every_n_epochs=10, checkpoint_path=None):
     # Enable GPU dynamic memory allocation
     gpus = tf.config.experimental.list_physical_devices('GPU')
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
 
-    print("\nDistillation started...")
-    print(f"Teacher model: {teacher_name}  || student model: {student_name}")
+    print_message("\nDistillation started...\n")
+    print_message(f"Teacher model: {teacher_name}  || student model: {student_name}\n")
     start_distill = time.time()
 
     temperature = 10
@@ -63,7 +73,7 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
         # Restore the latest checkpoint if it exists
         if ckpt_manager.latest_checkpoint:
             ckpt.restore(ckpt_manager.latest_checkpoint)
-            print(f"Restored from {ckpt_manager.latest_checkpoint}")
+            print_message(f"Restored from {ckpt_manager.latest_checkpoint}\n")
             x = 1
             while(True):
                 if ckpt_manager.latest_checkpoint[-(x+1)] == "-":
@@ -71,7 +81,7 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
                     break
                 x += 1
         else:
-            print("Starting training from scratch.")
+            print_message("Starting training from scratch.\n")
             start_step = 0
 
 
@@ -129,62 +139,59 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
         losses_dict["localization_avg"] = np.mean(losses_dict["localization"])
         losses_dict["classification_avg"] = np.mean(losses_dict["classification"])
         losses_dict["total_avg"] = np.mean(losses_dict["total"])
-        all_epoch_losses.append(losses_dict["total_avg"])
+        all_epoch_losses.append([losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["total_avg"]])
 
         end_time = time.time()
-        print(" - Time: {:.2f}s - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - | - Total loss: {:.4f} ".format(end_time - start_time, losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["total_avg"]))
+        print_message(" - Time: {:.2f}s - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - | - Total loss: {:.4f} \n".format(end_time - start_time, losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["total_avg"]))
 
         
         # Save checkpoint every save_every_n_epochs epochs
         if checkpoint_path and (epoch + 1) % save_every_n_epochs == 0:
             ckpt_save_path = ckpt_manager.save()
-            print(f"Checkpoint saved at {ckpt_save_path}\n")
+            print_message(f"Checkpoint saved at {ckpt_save_path}\n\n")
 
             
     end_distill = time.time()
     total_distill_time = end_distill - start_distill
-    print(f"Distillation finished in {total_distill_time:.2f}s || {total_distill_time / 60:.2f}min || {total_distill_time / 3600:.2f}h")
+    print_message(f"Distillation finished in {total_distill_time:.2f}s || {total_distill_time / 60:.2f}min || {total_distill_time / 3600:.2f}h\n")
 
     # Final save of the student model
     if checkpoint_path:
         ckpt_save_path = ckpt_manager.save()
-        print(f"Final checkpoint saved at {ckpt_save_path}")
+        print_message(f"Final checkpoint saved at {ckpt_save_path}\n")
 
-        
+
     return student_model, all_epoch_losses
 
-def get_student_model(model_name, model_config_path, distilled_model_path):
+def get_student_model(model_name, model_config_path, distilled_model_path, distilled_model_name = None):
     configs = config_util.get_configs_from_pipeline_file(model_config_path + model_name + "/pipeline.config")
     model_config = configs['model']
     model = model_builder.build(model_config=model_config, is_training=True)
-    #distilled_model_name = model_name + f"_distilled_16"
-    i=0
-    while(True):
-        distilled_model_name = model_name + f"_distilled_{i}"
-        model_path = distilled_model_path + distilled_model_name
-        if not os.path.exists(model_path):
-            os.makedirs(model_path, exist_ok=True)
-            shutil.copyfile(model_config_path + model_name + "/pipeline.config", model_path + "/pipeline.config")
-            break
-        else:
-            i+=1
-    
+    if distilled_model_name == None:
+        i=0
+        while(True):
+            distilled_model_name = model_name + f"_distilled_{i}"
+            model_path = distilled_model_path + distilled_model_name
+            if not os.path.exists(model_path):
+                os.makedirs(model_path, exist_ok=True)
+                shutil.copyfile(model_config_path + model_name + "/pipeline.config", model_path + "/pipeline.config")
+                break
+            else:
+                i+=1
+
     return model, distilled_model_name
 
+def find_last_checkpoint(model_path):
+    ckpt_files = os.listdir(model_path)
+    ckpt_numbers = []
+    for ckpt in ckpt_files:
+        if ckpt.startswith("ckpt-"):
+            ckpt_numbers.append(int(ckpt.split(".")[0].split("-")[1]))
+    last_ckpt_number = str(max(ckpt_numbers))
+    last_ckpt = "ckpt-" + last_ckpt_number
+    return last_ckpt
+
 def load_model(model_name, path_to_model_dir):
-    ckpt_dict = {"my_ssd_resnet50_v1_fpn":'/ckpt-31',
-                    "my_ssd_resnet101_v1_fpn_640x640_coco17_tpu-8":"/ckpt-28",
-                    "my_ssd_resnet101_v1_fpn_640x640_coco17_tpu-8_3":"/ckpt-26",
-                    "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8":"/ckpt-26",
-                    "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_2":"/ckpt-26",
-                    "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8":"/ckpt-26",
-                    "ssd_mobilenet_v1_fpn_640x640_distilled_2":"/ckpt-1",
-                    "ssd_mobilenet_v1_fpn_640x640_distilled_3":"/ckpt-1",
-                    "my_efficientdet_d1_coco17_tpu-32":"/ckpt-301",
-                    "ssd_mobilenet_v1_fpn_640x640_distilled_4":"/ckpt-1",
-                    "my_ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8": "/ckpt-51"}
-
-
     path_to_model_dir += model_name
     tf.get_logger().setLevel('ERROR')           # Suppress TensorFlow logging (2)
 
@@ -193,8 +200,8 @@ def load_model(model_name, path_to_model_dir):
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)
     
-    print("\n[Loading TF2 Checkpoint]\n")
-    print(f'Loading model - {model_name}... \n')
+    print_message("\n[Loading TF2 Checkpoint]\n")
+    print_message(f'Loading model - {model_name}... \n')
     start_time = time.time()
 
     # Load pipeline config and build a detection model
@@ -203,13 +210,15 @@ def load_model(model_name, path_to_model_dir):
     
     detection_model = model_builder.build(model_config=model_config, is_training=False)
 
+    last_ckpt = find_last_checkpoint(path_to_model_dir)
+
     # Restore checkpoint
     ckpt = tf.compat.v2.train.Checkpoint(model=detection_model)
-    ckpt.restore(path_to_model_dir + ckpt_dict[model_name]).expect_partial()
+    ckpt.restore(path_to_model_dir + "/" + last_ckpt).expect_partial()
 
     end_time = time.time()
     elapsed_time = end_time - start_time
-    print(f'The model has been loaded - {elapsed_time:.2f}s\n\n')
+    print_message(f'The model has been loaded ({last_ckpt}) - {elapsed_time:.2f}s\n\n\n')
 
     return detection_model
 
@@ -246,14 +255,16 @@ models_path = "TensorFlow/workspace/training_demo/models/"
 path_to_labels = f"TensorFlow/workspace/training_demo/annotations/{label_filename}"
 category_index = label_map_util.create_category_index_from_labelmap(path_to_labels, use_display_name=True)
 
+
 teacher_model = load_model(teacher_model_name, models_path)
-student_model, distilled_model_name = get_student_model(student_model_name, models_path, distilled_model_path)
+
+student_model, distilled_model_name = get_student_model(student_model_name, models_path, distilled_model_path, distilled_model_name = None) # Change distilled_model_name to continue training model from a specific checkpoint
 
 dataset = tf.compat.v1.data.TFRecordDataset(train_tfrecords_path)
 dataset = dataset.map(parse_function).batch(1)
 
 model, all_losses = distill(
-    epoch_num=10,
+    epoch_num=2,
     dataset=dataset,
     teacher_model=teacher_model,
     teacher_name=teacher_model_name,
@@ -266,7 +277,9 @@ model, all_losses = distill(
     save_every_n_epochs=1,
     checkpoint_path= distilled_model_path + distilled_model_name 
 )
+
+pd.DataFrame(all_losses).to_csv(distilled_model_path + distilled_model_name + "/losses.csv", index=False)
 # Zapisanie modelu
 ckpt = tf.compat.v2.train.Checkpoint(model=model)
 ckpt.save(distilled_model_path + distilled_model_name + '/ckpt')
-print(f"Model {student_model_name} saved in {distilled_model_path + distilled_model_name + '/ckpt'}")
+print_message(f"Model {student_model_name} saved in {distilled_model_path + distilled_model_name + '/ckpt'}\n")

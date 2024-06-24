@@ -49,8 +49,8 @@ def normalize_boxes(boxes):
 #@tf.function
 def match_predictions_to_ground_truth(pred_boxes, true_boxes, pred_logits, true_labels, iou_threshold=0.01):
     #with tf.device('/CPU:0'):
-    pred_boxes = normalize_boxes(pred_boxes)
-    true_boxes = normalize_boxes(true_boxes)    
+    #pred_boxes = normalize_boxes(pred_boxes)
+    #true_boxes = normalize_boxes(true_boxes)    
 
     # Compute IoU between all predicted boxes and true boxes
     iou_matrix = compute_iou(pred_boxes, true_boxes)
@@ -106,7 +106,12 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
     all_epoch_losses = []
     for epoch in range(epoch_num):
         start_time = time.time()
-        
+
+        is_training = True
+        student_model._is_training = is_training  # pylint: disable=protected-access
+        tf.keras.backend.set_learning_phase(is_training)
+
+
         losses_dict = {
             "distill": [],
             "localization": [],

@@ -85,6 +85,10 @@ def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, stud
     for epoch in range(epoch_num):
         start_time = time.time()
         
+        is_training = True
+        student_model._is_training = is_training  # pylint: disable=protected-access
+        tf.keras.backend.set_learning_phase(is_training)
+
         losses_dict = {
             "distill": [],
             "localization": [],
