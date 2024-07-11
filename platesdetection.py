@@ -147,6 +147,7 @@ class detection:
         return int(filename.split("Cars")[1].split(".")[0])
 
     def find_images_names(self):
+        '''
         images_names = []
         
         for image_name in os.listdir(self.path_to_images_dir):
@@ -154,7 +155,13 @@ class detection:
                 images_names.append(image_name)
         sorted_names = sorted(images_names, key=self.extract_number)
         return sorted_names
-
+        '''
+        images_names = []
+        for image_name in os.listdir(self.path_to_images_dir):
+            if image_name.endswith(('.bmp', '.jpg', '.png', '.jpeg')):
+                images_names.append(image_name)
+        return images_names 
+    
     def filter_text(self, region, ocr_result, region_threshold):
         rectangle_size = region.shape[0]*region.shape[1]
         
@@ -249,7 +256,7 @@ class detection:
     def find_plate(self, image_name, ocr = True):
         start_detection = time.time()
         image_path = self.path_to_images_dir + '/' + image_name
-        self.model.print_message(f'\n{image_name}... ')
+        self.model.print_message(f'{image_name}... ')
         image, detections = self.detect_object(np.array(cv2.imread(image_path)))
         end_detection = time.time()
         self.model.print_message(f' || Detection time: {(end_detection-start_detection):.2f}s')
@@ -266,13 +273,14 @@ class detection:
                 for word in text:
                     imageText += word
             cv2.putText(image, imageText, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            imageText = image_name + " || " + imageText
+            imageText = image_name.split(".")[0] + " || " + imageText + "." + image_name.split(".")[1]
         else:
             imageText = image_name
        
         return image, imageText
 
     def detect_image(self, image_name, ocr = True, save = False):
+        self.model.print_message("\n")
         image, imageText = self.find_plate(image_name, ocr)
         plt.figure(num=imageText)
         plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
@@ -284,22 +292,27 @@ class detection:
             output_path = os.path.join(results_dir, imageText + ".jpg")
             cv2.imwrite(output_path, image)
 
-    def detect_all_images(self, ocr = True, save = False):
+    def detect_all_images(self, ocr = True, save = False, showImages = False):
         plt.rcParams['figure.max_open_warning'] = len(self.image_names) + 1
         start_time = time.time()
+        i = 0
         for image_name in self.image_names:
+            i += 1
+            self.model.print_message(f"\n[{i}/{len(self.image_names)}] - ")
             image, imageText = self.find_plate(image_name, ocr)
-            plt.figure(num=imageText)
-            plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            if showImages:
+                plt.figure(num=imageText)
+                plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
             if save:
                 results_dir = os.path.join("results", self.model_name)
                 if not os.path.exists(results_dir):
                     os.makedirs(results_dir, exist_ok=True)
-                output_path = os.path.join(results_dir, imageText + ".jpg")
+                output_path = os.path.join(results_dir, imageText)
                 cv2.imwrite(output_path, image)
         end_time = time.time()
         self.model.print_message(f"\nNumber of images: {len(self.image_names)} || Total time: {(end_time-start_time):.2f}s\n")
-        plt.show()          
+        if showImages:
+            plt.show()          
 
     def detect_video(self, video_path, ocr=True):
         cap = cv2.VideoCapture(video_path)

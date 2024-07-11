@@ -26,13 +26,15 @@ def print_message(message):
 
 #@tf.function
 def detect_fn(image, detection_model):
+    """Detect objects in image."""
+
     image, shapes = detection_model.preprocess(image)
     prediction_dict = detection_model.predict(image, shapes)
-    #detections = detection_model.postprocess(prediction_dict, shapes)
+    detections = detection_model.postprocess(prediction_dict, shapes)
 
     return prediction_dict, shapes
 
-@tf.function
+#@tf.function
 def reshape(boxes, classes):
     boxes = tf.squeeze(boxes, axis=0)  # Usunięcie zbędnego wymiaru, jeśli jest dodany
     if boxes.shape != (1, 4):
@@ -46,7 +48,7 @@ def reshape(boxes, classes):
 
     return boxes, classes
                  
-def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, distillation_loss_fn, save_every_n_epochs=10, checkpoint_path=None):
+def distill(epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, classification_loss_fn, localization_loss_fn, distillation_loss_fn, save_every_n_epochs=10, checkpoint_path=None):
     # Enable GPU dynamic memory allocation
     gpus = tf.config.experimental.list_physical_devices('GPU')
     for gpu in gpus:
@@ -244,8 +246,8 @@ def parse_function(example_proto):
     return image, (boxes, classes)
 
 
-teacher_model_name = "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_6"
-student_model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8"
+teacher_model_name = "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_4"
+student_model_name = "my_ssd_resnet50_v1_fpn"
 label_filename = "label_map.pbtxt"
 
 train_tfrecords_path = "TensorFlow/workspace/training_demo/annotations/train.record"
@@ -270,6 +272,8 @@ model, all_losses = distill(
     student_model=student_model,
     student_name=student_model_name,
     optimizer=tf.keras.optimizers.Adam(),
+    classification_loss_fn=tf.keras.losses.CategoricalCrossentropy(from_logits=True),
+    localization_loss_fn=tf.keras.losses.MeanSquaredError(),
     distillation_loss_fn=tf.keras.losses.KLDivergence(),
     save_every_n_epochs=1,
     checkpoint_path= distilled_model_path + distilled_model_name 
