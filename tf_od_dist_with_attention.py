@@ -7,7 +7,7 @@ import numpy as np
 import time
 import pandas as pd
 import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # Change '0' to the GPU ID you want to use
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # Change '0' to the GPU ID you want to use
 import shutil
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from tqdm import tqdm
@@ -32,12 +32,15 @@ class distiller():
         self.alpha = 1
         self.beta = 1
         self.gamma = 1
+        self.delta = 1
         self.temperature = 10
         
         self.localization_loss_name = None
         self.classification_loss_name = None
         self.distillation_loss_name = None
 
+        self.distillation_loss = tf.keras.losses.KLDivergence()
+        self.attention_loss = tf.keras.losses.MeanSquaredError()
         self.localization_loss = None
         self.classification_loss = None
         self.evaluation_metrics_name = None
@@ -83,8 +86,28 @@ class distiller():
             classes = tf.reshape(classes[0], (1, 1))
 
         return boxes, classes
-                    
-    def distill(self, epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, distillation_loss_fn, save_every_n_epochs=10, checkpoint_path=None, alpha = 0.5, beta = 0.2, gamma = 0.2, temperature = 10):
+
+    def attention_transfer(self, student_model, teacher_model):
+        if "ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8" in self.student_model_name and "ssd_resnet152_v1_fpn_640x640_coco17_tpu-8" in self.teacher_model_name:
+            loss = 0
+            for i in range(92, 98):
+                loss += self.attention_loss(teacher_model.variables[i], student_model.variables[i])
+            for i in range(12):
+                if i == 0 or i == 2 or i == 4:
+                    loss += self.attention_loss(teacher_model.variables[563 + i], tf.tile(student_model.variables[179 + i], [1,1,2,1]))
+                else:
+                    loss += self.attention_loss(teacher_model.variables[563 + i], student_model.variables[179 + i])
+            for i in range(4):
+                loss += self.attention_loss(teacher_model.variables[655 + i], student_model.variables[271 + i])
+            for i in range(4):
+                loss += self.attention_loss(teacher_model.variables[969 + i], student_model.variables[329 + i])
+
+            return loss
+        else:
+            self.print_message("Attention transfer not implemented for this models!\n")
+            return 0
+
+    def distill(self, epoch_num, dataset, teacher_model, teacher_name, student_model, student_name, optimizer, save_every_n_epochs=10, checkpoint_path=None, alpha = 0.5, beta = 0.2, gamma = 0.2, delta = 0, temperature = 10):
         # Enable GPU dynamic memory allocation
         gpus = tf.config.experimental.list_physical_devices('GPU')
         for gpu in gpus:
@@ -104,8 +127,9 @@ class distiller():
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
+        self.delta = delta
         self.temperature = temperature
-        self.distillation_loss_name = distillation_loss_fn.name
+        self.distillation_loss_name = self.distillation_loss.name
 
         # Initialize checkpoint manager
         if checkpoint_path:
@@ -138,10 +162,12 @@ class distiller():
                 "distill": [],
                 "localization": [],
                 "classification": [],
+                "attention": [],
                 "total": [],
                 "distill_avg": 0,
                 "localization_avg": 0,
                 "classification_avg": 0,
+                "attention_avg": 0,
                 "total_avg": 0
             }
             i = 0
@@ -164,31 +190,20 @@ class distiller():
 
                     # Calculate distillation loss
 
-                    distill_loss = distillation_loss_fn(
+                    distill_loss = self.distillation_loss(
                         tf.nn.softmax(teacher_prediction_dict['class_predictions_with_background'] / self.temperature),
                         tf.nn.softmax(student_prediction_dict['class_predictions_with_background'] / self.temperature)
                     )
 
-                    losses_dict["distill"].append(distill_loss)
+                    losses_dict["distill"].append(distill_loss) 
 
-                    total_loss = self.alpha * distill_loss + self.beta * classification_loss + self.gamma * localization_loss
+                    attention_loss = self.attention_transfer(student_model, teacher_model)
+
+                    losses_dict["attention"].append(attention_loss)
+
+                    total_loss = self.alpha * distill_loss + self.beta * classification_loss + self.gamma * localization_loss + self.delta * attention_loss
                     losses_dict["total"].append(total_loss)
-
-                log = open(f"logs/layers/{self.student_model_name}" + ".csv", "a")
-                log.write(self.student_model_name + "\n")
-                for layer in student_model.variables:
-                    log = open(f"logs/layers/{self.student_model_name}" + ".csv", "a")
-                    log.write(layer.name + "\n")
-                    log.close()
-
-                log = open(f"logs/layers/{self.teacher_model_name}" + ".csv", "a")
-                log.write(self.teacher_model_name + "\n")
-                for layer in teacher_model.variables:
-                    log = open(f"logs/layers/{self.teacher_model_name}" + ".csv", "a")
-                    log.write(layer.name + "\n")
-                    log.close()
-
-                
+             
                     
                 gradients = tape.gradient(total_loss, student_model.trainable_variables)
                 optimizer.apply_gradients(zip(gradients, student_model.trainable_variables))
@@ -198,11 +213,12 @@ class distiller():
             losses_dict["distill_avg"] = np.mean(losses_dict["distill"])
             losses_dict["localization_avg"] = np.mean(losses_dict["localization"])
             losses_dict["classification_avg"] = np.mean(losses_dict["classification"])
+            losses_dict["attention_avg"] = np.mean(losses_dict["attention"])
             losses_dict["total_avg"] = np.mean(losses_dict["total"])
-            all_epoch_losses.append([losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["total_avg"]])
+            all_epoch_losses.append([losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["attention_avg"], losses_dict["total_avg"]])
 
             end_time = time.time()
-            self.print_message(" - Time: {:.2f}s - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - | - Total loss: {:.4f} \n".format(end_time - start_time, losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["total_avg"]))
+            self.print_message(" - Time: {:.2f}s - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - Attention loss: {:.4f} - | - Total loss: {:.4f} \n".format(end_time - start_time, losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["attention_avg"], losses_dict["total_avg"]))
 
             
             # Save checkpoint every save_every_n_epochs epochs
@@ -322,9 +338,9 @@ class distiller():
         boxes = tf.stack([ymin, xmin, ymax, xmax], axis=1)
         return image, (boxes, classes)
 
-    def distillation_init(self, epoch, alpha_n = 0.5, beta_n = 0.5, gamma_n = 0.5, temperature_n = 10):
+    def distillation_init(self, epoch, alpha_n = 0.5, beta_n = 0.5, gamma_n = 0.5, temperature_n = 10, delta_n = 0.5):
         
-        self.print_message(f"Chosen dataset: {self.dataset_name}\n alpha = {alpha_n} || beta = {beta_n} || gamma = {gamma_n} || temperature = {temperature_n}\n")
+        self.print_message(f"Chosen dataset: {self.dataset_name}\n alpha = {alpha_n} || beta = {beta_n} || gamma = {gamma_n} || delta = {delta_n} || temperature = {temperature_n}\n")
 
         model, all_losses = self.distill(
             epoch_num=epoch,
@@ -334,16 +350,16 @@ class distiller():
             student_model=self.student_model,
             student_name=self.student_model_name,
             optimizer=tf.keras.optimizers.Adam(),
-            distillation_loss_fn=tf.keras.losses.KLDivergence(),
             save_every_n_epochs=1,
             checkpoint_path= self.distilled_model_path + self.distilled_model_name,
             alpha = alpha_n,
             beta = beta_n,
             gamma = gamma_n,
+            delta = delta_n,
             temperature = temperature_n 
         )
 
-        losses_names = ['Distillation Loss', 'Localization Loss', 'Classification Loss', 'Total Loss']
+        losses_names = ['Distillation Loss', 'Localization Loss', 'Classification Loss', "Attention Loss", 'Total Loss']
         pd.DataFrame(all_losses, columns=losses_names).to_csv(self.distilled_model_path + self.distilled_model_name + "/losses.csv", index=False)
         # Zapisanie modelu
         ckpt = tf.compat.v2.train.Checkpoint(model=model)

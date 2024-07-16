@@ -1,4 +1,6 @@
 from platesdetection import *
+import os
+
 
 #SSD MobileNet V2 320x320
 #URL = 'http://download.tensorflow.org/models/object_detection/tf2/20200711/ssd_mobilenet_v2_320x320_coco17_tpu-8.tar.gz'
@@ -73,3 +75,16 @@ path_to_images_dir = "TensorFlow/workspace/training_demo/images/new_data/test"
 detector = detection(model_name, path_to_images_dir)
 detector.detect_all_images(ocr=False, save=True, showImages = False)
 #detector.detect_video(video_path, False)
+
+"""
+i = 44
+
+while(1):
+    if f"my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_{i}" in os.listdir("TensorFlow/workspace/training_demo/distil_models/"):
+        detector = detection(f"my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_{i}", path_to_images_dir)
+        detector.detect_all_images(ocr=False, save=True, showImages = False)
+        i+=1
+    else:
+        break
+print("Done!!!")
+"""
