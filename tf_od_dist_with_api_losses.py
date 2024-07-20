@@ -7,16 +7,18 @@ import numpy as np
 import time
 import pandas as pd
 import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # Change '0' to the GPU ID you want to use
+#os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # Change '0' to the GPU ID you want to use
 import shutil
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from tqdm import tqdm
 
 class distiller():
-    def __init__(self, teacher_model_name, student_model_name, tf_records_path = "TensorFlow/workspace/training_demo/annotations/train.record", save_log = True):
+    def __init__(self, teacher_model_name, student_model_name, tf_records_path = "TensorFlow/workspace/training_demo/annotations/train.record", save_log = True, save_ckpt = True):
         self.start_time = time.time()
         self.datetime = datetime.now()
+
         self.save_log = save_log
+        self.save_ckpt = save_ckpt
 
         self.label_filename = "label_map.pbtxt"
 
@@ -108,22 +110,23 @@ class distiller():
         self.distillation_loss_name = distillation_loss_fn.name
 
         # Initialize checkpoint manager
-        if checkpoint_path:
-            ckpt = tf.compat.v2.train.Checkpoint(model=student_model, optimizer=optimizer)
-            ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
-            # Restore the latest checkpoint if it exists
-            if ckpt_manager.latest_checkpoint:
-                ckpt.restore(ckpt_manager.latest_checkpoint)
-                self.print_message(f"Restored from {ckpt_manager.latest_checkpoint}\n")
-                x = 1
-                while(True):
-                    if ckpt_manager.latest_checkpoint[-(x+1)] == "-":
-                        start_step = int(ckpt_manager.latest_checkpoint[-x:])
-                        break
-                    x += 1
-            else:
-                self.print_message("Starting training from scratch.\n")
-                start_step = 0
+        if self.save_ckpt:
+            if checkpoint_path:
+                ckpt = tf.compat.v2.train.Checkpoint(model=student_model, optimizer=optimizer)
+                ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+                # Restore the latest checkpoint if it exists
+                if ckpt_manager.latest_checkpoint:
+                    ckpt.restore(ckpt_manager.latest_checkpoint)
+                    self.print_message(f"Restored from {ckpt_manager.latest_checkpoint}\n")
+                    x = 1
+                    while(True):
+                        if ckpt_manager.latest_checkpoint[-(x+1)] == "-":
+                            start_step = int(ckpt_manager.latest_checkpoint[-x:])
+                            break
+                        x += 1
+                else:
+                    self.print_message("Starting training from scratch.\n")
+                    start_step = 0
 
 
         all_epoch_losses = []
@@ -174,41 +177,24 @@ class distiller():
                     total_loss = self.alpha * distill_loss + self.beta * classification_loss + self.gamma * localization_loss
                     losses_dict["total"].append(total_loss)
 
-                log = open(f"logs/layers/{self.student_model_name}" + ".csv", "a")
-                log.write(self.student_model_name + "\n")
-                for layer in student_model.variables:
-                    log = open(f"logs/layers/{self.student_model_name}" + ".csv", "a")
-                    log.write(layer.name + "\n")
-                    log.close()
-
-                log = open(f"logs/layers/{self.teacher_model_name}" + ".csv", "a")
-                log.write(self.teacher_model_name + "\n")
-                for layer in teacher_model.variables:
-                    log = open(f"logs/layers/{self.teacher_model_name}" + ".csv", "a")
-                    log.write(layer.name + "\n")
-                    log.close()
-
-                
-                    
                 gradients = tape.gradient(total_loss, student_model.trainable_variables)
                 optimizer.apply_gradients(zip(gradients, student_model.trainable_variables))
-
-                
 
             losses_dict["distill_avg"] = np.mean(losses_dict["distill"])
             losses_dict["localization_avg"] = np.mean(losses_dict["localization"])
             losses_dict["classification_avg"] = np.mean(losses_dict["classification"])
             losses_dict["total_avg"] = np.mean(losses_dict["total"])
-            all_epoch_losses.append([losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["total_avg"]])
+            all_epoch_losses.append([optimizer.learning_rate.numpy(), losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["total_avg"]])
 
             end_time = time.time()
-            self.print_message(" - Time: {:.2f}s - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - | - Total loss: {:.4f} \n".format(end_time - start_time, losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["total_avg"]))
+            self.print_message(" - Time: {:.2f}s - | - Learning Rate {:.4f} - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - | - Total loss: {:.4f} \n".format(end_time - start_time, optimizer.learning_rate.numpy(), losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["total_avg"]))
 
             
             # Save checkpoint every save_every_n_epochs epochs
-            if checkpoint_path and (epoch + 1) % save_every_n_epochs == 0:
-                ckpt_save_path = ckpt_manager.save()
-                self.print_message(f"Checkpoint saved at {ckpt_save_path}\n\n")
+            if self.save_ckpt:
+                if checkpoint_path and (epoch + 1) % save_every_n_epochs == 0:
+                    ckpt_save_path = ckpt_manager.save()
+                    self.print_message(f"Checkpoint saved at {ckpt_save_path}\n\n")
 
                 
         end_distill = time.time()
@@ -216,9 +202,10 @@ class distiller():
         self.print_message(f"Distillation finished in {total_distill_time:.2f}s || {total_distill_time / 60:.2f}min || {total_distill_time / 3600:.2f}h\n")
 
         # Final save of the student model
-        if checkpoint_path:
-            ckpt_save_path = ckpt_manager.save()
-            self.print_message(f"Final checkpoint saved at {ckpt_save_path}\n")
+        if self.save_ckpt:
+            if checkpoint_path:
+                ckpt_save_path = ckpt_manager.save()
+                self.print_message(f"Final checkpoint saved at {ckpt_save_path}\n")
 
 
         return student_model, all_epoch_losses
@@ -343,11 +330,12 @@ class distiller():
             temperature = temperature_n 
         )
 
-        losses_names = ['Distillation Loss', 'Localization Loss', 'Classification Loss', 'Total Loss']
+        losses_names = ['Learning Rate', 'Distillation Loss', 'Localization Loss', 'Classification Loss', 'Total Loss']
         pd.DataFrame(all_losses, columns=losses_names).to_csv(self.distilled_model_path + self.distilled_model_name + "/losses.csv", index=False)
         # Zapisanie modelu
-        ckpt = tf.compat.v2.train.Checkpoint(model=model)
-        ckpt.save(self.distilled_model_path + self.distilled_model_name + '/ckpt')
-        self.print_message(f"Model {self.student_model_name} saved in {self.distilled_model_path + self.distilled_model_name + '/ckpt'}\n")
+        if self.save_ckpt:
+            ckpt = tf.compat.v2.train.Checkpoint(model=model)
+            ckpt.save(self.distilled_model_path + self.distilled_model_name + '/ckpt')
+            self.print_message(f"Model {self.student_model_name} saved in {self.distilled_model_path + self.distilled_model_name + '/ckpt'}\n")
 
         return all_losses

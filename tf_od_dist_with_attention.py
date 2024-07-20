@@ -7,7 +7,7 @@ import numpy as np
 import time
 import pandas as pd
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # Change '0' to the GPU ID you want to use
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # Change '0' to the GPU ID you want to use
 import shutil
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from tqdm import tqdm
@@ -215,10 +215,10 @@ class distiller():
             losses_dict["classification_avg"] = np.mean(losses_dict["classification"])
             losses_dict["attention_avg"] = np.mean(losses_dict["attention"])
             losses_dict["total_avg"] = np.mean(losses_dict["total"])
-            all_epoch_losses.append([losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["attention_avg"], losses_dict["total_avg"]])
+            all_epoch_losses.append([optimizer.learning_rate.numpy(), losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["attention_avg"], losses_dict["total_avg"]])
 
             end_time = time.time()
-            self.print_message(" - Time: {:.2f}s - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - Attention loss: {:.4f} - | - Total loss: {:.4f} \n".format(end_time - start_time, losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["attention_avg"], losses_dict["total_avg"]))
+            self.print_message(" - Time: {:.2f}s - | - Learning Rate {:.4f} - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - Attention loss: {:.4f} - | - Total loss: {:.4f} \n".format(end_time - start_time, optimizer.learning_rate.numpy(), losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["attention_avg"], losses_dict["total_avg"]))
 
             
             # Save checkpoint every save_every_n_epochs epochs
@@ -359,7 +359,7 @@ class distiller():
             temperature = temperature_n 
         )
 
-        losses_names = ['Distillation Loss', 'Localization Loss', 'Classification Loss', "Attention Loss", 'Total Loss']
+        losses_names = ['Learning Rate', 'Distillation Loss', 'Localization Loss', 'Classification Loss', "Attention Loss", 'Total Loss']
         pd.DataFrame(all_losses, columns=losses_names).to_csv(self.distilled_model_path + self.distilled_model_name + "/losses.csv", index=False)
         # Zapisanie modelu
         ckpt = tf.compat.v2.train.Checkpoint(model=model)

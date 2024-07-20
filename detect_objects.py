@@ -62,7 +62,7 @@ import os
 #model_name = "my_ssd_resnet50_v1_fpn_distilled_iou"
 #model_name = "my_ssd_resnet50_v1_fpn_distilled_2"
 #model_name = "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_freezed_layers"
-model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_distilled_5"
+model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_2"
 
 
 video_path = "TensorFlow/workspace/training_demo/videos/demo.mp4"
