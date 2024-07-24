@@ -78,7 +78,7 @@ def main(pipeline_config_path_n = None,
             record_summaries=record_summaries_n)
 
 
-model_name = "my_ssd_resnet152_v1_fpn_640x640_coco17_tpu-8_11"
+model_name = "my_ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8_3"
 pipeline_config_path = f"TensorFlow/workspace/training_demo/models/{model_name}/pipeline.config" #'Path to pipeline config '
 num_train_steps = 25000 # 'Number of train steps.'
 eval_on_train_data = False # 'Enable evaluating on train data (only supported in distributed training).' (CHYBA NIE UŻYWANE)

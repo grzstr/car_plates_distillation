@@ -11,6 +11,47 @@ import os
 import shutil
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from tqdm import tqdm
+from sklearn.preprocessing import RobustScaler
+
+class WarmUpCosine(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(
+        self, learning_rate_base, total_steps, warmup_learning_rate, warmup_steps
+    ):
+        super().__init__()
+
+        self.learning_rate_base = learning_rate_base
+        self.total_steps = total_steps
+        self.warmup_learning_rate = warmup_learning_rate
+        self.warmup_steps = warmup_steps
+        self.pi = tf.constant(np.pi)
+
+    def __call__(self, step):
+        if self.total_steps < self.warmup_steps:
+            raise ValueError("Total_steps must be larger or equal to warmup_steps.")
+
+        cos_annealed_lr = tf.cos(
+            self.pi
+            * (tf.cast(step, tf.float32) - self.warmup_steps)
+            / float(self.total_steps - self.warmup_steps)
+        )
+        learning_rate = 0.5 * self.learning_rate_base * (1 + cos_annealed_lr)
+
+        if self.warmup_steps > 0:
+            if self.learning_rate_base < self.warmup_learning_rate:
+                raise ValueError(
+                    "Learning_rate_base must be larger or equal to "
+                    "warmup_learning_rate."
+                )
+            slope = (
+                self.learning_rate_base - self.warmup_learning_rate
+            ) / self.warmup_steps
+            warmup_rate = slope * tf.cast(step, tf.float32) + self.warmup_learning_rate
+            learning_rate = tf.where(
+                step < self.warmup_steps, warmup_rate, learning_rate
+            )
+        return tf.where(
+            step > self.total_steps, 0.0, learning_rate, name="learning_rate"
+        )
 
 class distiller():
     def __init__(self, teacher_model_name, student_model_name, tf_records_path = "TensorFlow/workspace/training_demo/annotations/train.record", save_log = True, save_ckpt = True):
@@ -35,6 +76,7 @@ class distiller():
         self.alpha = 1
         self.beta = 1
         self.gamma = 1
+        self.delta = 0
         self.temperature = 10
 
         self.localization_loss_name = None
@@ -108,6 +150,37 @@ class distiller():
 
         return boxes, classes
 
+    def attention_transfer(self, attention_loss):
+        if "ssd_mobilenet_v1_fpn_640x640_coco17_tpu-8" in self.student_model_name and "ssd_resnet152_v1_fpn_640x640_coco17_tpu-8" in self.teacher_model_name:
+            loss = 0
+            for i in range(92, 98):
+                loss += attention_loss(self.teacher_model.variables[i], self.student_model.variables[i])
+            for i in range(12):
+                if i == 0 or i == 2 or i == 4:
+                    loss += attention_loss(self.teacher_model.variables[563 + i], tf.tile(self.student_model.variables[179 + i], [1,1,2,1]))
+                else:
+                    loss += attention_loss(self.teacher_model.variables[563 + i], self.student_model.variables[179 + i])
+            for i in range(4):
+                loss += attention_loss(self.teacher_model.variables[655 + i], self.student_model.variables[271 + i])
+            for i in range(4):
+                loss += attention_loss(self.teacher_model.variables[969 + i], self.student_model.variables[329 + i])
+
+            return loss
+        else:
+            self.print_message("Attention transfer not implemented for this models!\n")
+            return 0
+        
+    def normalize_losses(self, distill_loss, classification_loss, localization_loss, attention_loss):
+        losses = np.vstack([distill_loss, classification_loss, localization_loss, attention_loss])
+        scaler = RobustScaler()
+        normalized_losses = scaler.fit_transform(losses.reshape(-1, 1))
+        distill_loss = tf.convert_to_tensor(normalized_losses[0])
+        classification_loss = tf.convert_to_tensor(normalized_losses[1])
+        localization_loss = tf.convert_to_tensor(normalized_losses[2])
+        attention_loss = tf.convert_to_tensor(normalized_losses[3])
+
+        return distill_loss, classification_loss, localization_loss, attention_loss
+
     def ckpt_manager(self, optimizer):
         ckpt = tf.compat.v2.train.Checkpoint(model=self.student_model, optimizer=optimizer)
         ckpt_manager = tf.train.CheckpointManager(ckpt, self.checkpoint_path, max_to_keep=5)
@@ -127,7 +200,7 @@ class distiller():
 
         return ckpt_manager, start_step
     
-    def distill(self, epoch_num, optimizer, distillation_loss_fn, save_every_n_epochs=10):
+    def distill(self, epoch_num, optimizer, distillation_loss_fn, attention_loss_fn, save_every_n_epochs=10):
         self.print_message(f"\nDistillation started [{datetime.now().day}.{datetime.now().month}.{datetime.now().year}r. | {datetime.now().hour}:{datetime.now().minute}:{datetime.now().second}]...\n")
         self.print_message(f"Teacher model: {self.teacher_model_name}  || student model: {self.student_model_name}\n")
         self.print_message(f"Distilled model: {self.distilled_model_name}\n")
@@ -151,10 +224,12 @@ class distiller():
                 "distill": [],
                 "localization": [],
                 "classification": [],
+                "attention": [],
                 "total": [],
                 "distill_avg": 0,
                 "localization_avg": 0,
                 "classification_avg": 0,
+                "attention_avg": 0,
                 "total_avg": 0
             }
             i = 0
@@ -177,12 +252,18 @@ class distiller():
                         tf.nn.softmax(student_prediction_dict['class_predictions_with_background'] / self.temperature)
                     )
 
-                    total_loss = self.alpha * distill_loss + self.beta * losses['Loss/classification_loss'] + self.gamma * losses[
-                        'Loss/localization_loss']
+                    if self.delta != 0:
+                        attention_loss = self.attention_transfer(attention_loss_fn)
+                        distill_loss, losses['Loss/classification_loss'], losses['loss/localization_loss'], attention_loss = self.normalize_losses(distill_loss, losses['Loss/classification_loss'], losses['Loss/localization_loss'], attention_loss)
+                    else:
+                        attention_loss = 0
+
+                    total_loss = self.alpha * distill_loss + self.beta * losses['Loss/classification_loss'] + self.gamma * losses['Loss/localization_loss'] + self.delta * attention_loss
 
 
                     losses_dict["localization"].append(losses['Loss/localization_loss'])
                     losses_dict["classification"].append(losses['Loss/classification_loss'])
+                    losses_dict["attention"].append(attention_loss)
                     losses_dict["total"].append(total_loss)
                     losses_dict["distill"].append(distill_loss)
 
@@ -192,11 +273,13 @@ class distiller():
             losses_dict["distill_avg"] = np.mean(losses_dict["distill"])
             losses_dict["localization_avg"] = np.mean(losses_dict["localization"])
             losses_dict["classification_avg"] = np.mean(losses_dict["classification"])
+            losses_dict["attention_avg"] = np.mean(losses_dict["attention"])
             losses_dict["total_avg"] = np.mean(losses_dict["total"])
-            all_epoch_losses.append([optimizer.learning_rate.numpy(), losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["total_avg"]])
+            all_epoch_losses.append([optimizer.learning_rate.numpy(), losses_dict["distill_avg"], losses_dict["localization_avg"], losses_dict["classification_avg"], losses_dict["attention_avg"], losses_dict["total_avg"]])
 
             end_time = time.time()
-            self.print_message(" - Time: {:.2f}s - | - Learning Rate {:.4f} - | - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - | - Total loss: {:.4f} \n".format(end_time - start_time, optimizer.learning_rate.numpy(), losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["total_avg"]))
+            self.print_message(" - Time: {:.2f}s - | - Learning Rate {:.4f} - | - AVERAGE ( - Distillation loss: {:.4f} - Classification loss: {:.4f} - Localization loss: {:.4f} - Attention loss: {:.4f} - | - Total loss: {:.4f} ) \n".format(end_time - start_time, optimizer.learning_rate.numpy(), losses_dict["distill_avg"], losses_dict["classification_avg"], losses_dict["localization_avg"], losses_dict["attention_avg"], losses_dict["total_avg"]))
+            self.print_message(" - | - Distillation loss: {:} - Classification loss: {:} - Localization loss: {:} - Attention loss: {:} - | - Total loss: {:} \n".format(losses_dict["distill"][-1], losses_dict["classification"][-1], losses_dict["localization_avg"][-1], losses_dict["attention"][-1], losses_dict["total"][-1]))
 
             
             # Save checkpoint every save_every_n_epochs epochs
@@ -318,23 +401,25 @@ class distiller():
         boxes = tf.stack([ymin, xmin, ymax, xmax], axis=1)
         return image, (boxes, classes)
 
-    def distillation_init(self, epoch, alpha_n = 0.5, beta_n = 0.5, gamma_n = 0.5, temperature_n = 10):
+    def distillation_init(self, epoch, alpha_n = 1, beta_n = 1, gamma_n = 1, delta_n = 0, temperature_n = 10, learning_rate_n = 0.001):
 
         self.alpha = alpha_n
         self.beta = beta_n
         self.gamma = gamma_n
+        self.delta = delta_n
         self.temperature = temperature_n
 
         self.print_message(f"Chosen dataset: {self.dataset_name}\n alpha = {alpha_n} || beta = {beta_n} || gamma = {gamma_n} || temperature = {temperature_n}\n")
 
         all_losses = self.distill(
             epoch_num=epoch,
-            optimizer=tf.keras.optimizers.Adam(),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate_n),
             distillation_loss_fn=tf.keras.losses.KLDivergence(),
+            attention_loss_fn = tf.keras.losses.MeanSquaredError(),
             save_every_n_epochs=1,
         )
 
-        losses_names = ['Learning Rate', 'Distillation Loss', 'Localization Loss', 'Classification Loss', 'Total Loss']
+        losses_names = ['Learning Rate', 'Distillation Loss', 'Localization Loss', 'Classification Loss', 'Attention Loss', 'Total Loss']
         pd.DataFrame(all_losses, columns=losses_names).to_csv(self.distilled_model_path + self.distilled_model_name + "/losses.csv", index=False)
         # Zapisanie modelu
         if self.save_ckpt:
