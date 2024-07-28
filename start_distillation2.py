@@ -28,7 +28,7 @@ plt.show()
 distillation = distiller(teacher_model_name, student_model_name)
 
 
-distillation.distillation_init(epoch = 100,
+distillation.distillation_init(epoch = 25,
                                alpha_n = 0.7,
                                beta_n = 0.3,
                                gamma_n = 0.1,

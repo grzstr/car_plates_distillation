@@ -7,7 +7,7 @@ import numpy as np
 import time
 import pandas as pd
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"  # Change '0' to the GPU ID you want to use
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2"  # Change '0' to the GPU ID you want to use
 import shutil
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from tqdm import tqdm
@@ -54,13 +54,15 @@ class WarmUpCosine(tf.keras.optimizers.schedules.LearningRateSchedule):
         )
 
 class distiller():
-    def __init__(self, teacher_model_name, student_model_name, tf_records_path = "TensorFlow/workspace/training_demo/annotations/train.record", save_log = True, save_ckpt = True):
+    def __init__(self, teacher_model_name, student_model_name, tf_records_path = "TensorFlow/workspace/training_demo/annotations/train.record", save_log = True, save_ckpt = True, batch_size = 1):
         self.start_time = time.time()
         self.datetime = datetime.now()
         self.dynamic_memory_allocation()
 
         self.save_log = save_log
         self.save_ckpt = save_ckpt
+
+        self.batch_size = batch_size
 
         self.label_filename = "label_map.pbtxt"
 
@@ -90,7 +92,8 @@ class distiller():
         self.log_name = "log_" + str(self.datetime).split(".")[0].replace(":", "-") + ".txt"
 
         self.dataset = tf.compat.v1.data.TFRecordDataset(self.tf_records_path)
-        self.dataset = self.dataset.map(self.parse_function).batch(1)
+        self.dataset = self.dataset.map(self.parse_function, num_parallel_calls=tf.data.AUTOTUNE).batch(batch_size)
+        self.dataset = self.dataset.prefetch(tf.data.AUTOTUNE)
         self.dataset_name = tf_records_path.split("/")[-1]
         self.dataset_length = self.image_count()
 
@@ -163,9 +166,37 @@ class distiller():
             loss = tf.reduce_sum(losses / l2_norm)
 
             return loss
+        elif "ssd_mobilenet_v2_fpnlite_640x640_coco17_tpu-8" in self.student_model_name and "ssd_resnet152_v1_fpn_640x640_coco17_tpu-8" in self.teacher_model_name:
+            loss = 0
+            losses = tf.stack([attention_loss(self.teacher_model.variables[92 + i], tf.tile(self.student_model.variables[54 + i], [1,1,2,1])) if (i == 0) 
+                            else attention_loss(tf.tile(tf.reshape(self.teacher_model.variables[92 + i], [1,1,1,256]),[1,1,128,1]), tf.tile(self.student_model.variables[54 + i],[1,1,1,2])) if (i == 1 or i ==5) 
+                            else attention_loss(self.teacher_model.variables[92 + i], tf.tile(self.student_model.variables[54 + i], [2,])) if (i == 2)
+                            else attention_loss(self.teacher_model.variables[92 + i], tf.tile(tf.reshape(self.student_model.variables[54+i], [1,1,1,128]), [3,3,256,2])) if (i == 3)
+                            else attention_loss(self.teacher_model.variables[92 + i], self.student_model.variables[54 + i]) for i in range(5)] + \
+                            [attention_loss(tf.tile(self.teacher_model.variables[563 + i], [1,1,5,1]), tf.tile(self.student_model.variables[218 + i], [1,1,8,2])) if (i == 0) 
+                             else attention_loss(self.teacher_model.variables[563 + i], tf.tile(self.student_model.variables[218 + i], [2,])) if (i == 1 or i == 3)
+                             else attention_loss(tf.tile(self.teacher_model.variables[563 + i], [1,1,3,1]), tf.tile(self.student_model.variables[218 + i], [1,1,32,2])) if (i == 2)
+                             else attention_loss(self.teacher_model.variables[563 + i], self.student_model.variables[218 + i]) for i in range(4)] + \
+                            [attention_loss(self.teacher_model.variables[655 + i], tf.tile(self.student_model.variables[272 + i], [2,])) for i in range(4)] + \
+                            [attention_loss(self.teacher_model.variables[969 + i], tf.tile(self.student_model.variables[380 + i], [2,])) for i in range(4)])
+            l2_norm = tf.norm(losses, ord=2)
+            loss = tf.reduce_sum(losses / l2_norm)
+            return loss
+        elif "ssd_resnet50_v1_fpn" in self.student_model_name and "ssd_resnet152_v1_fpn_640x640_coco17_tpu-8" in self.teacher_model_name:
+            loss = 0
+            losses = tf.stack([attention_loss(self.teacher_model.variables[i], self.student_model.variables[i]) for i in range(92, 97)] + \
+                            [attention_loss(self.teacher_model.variables[563 + i], self.student_model.variables[257 + i]) for i in range(12)] + \
+                            [attention_loss(self.teacher_model.variables[655 + i], self.student_model.variables[349 + i]) for i in range(4)] + \
+                            [attention_loss(self.teacher_model.variables[969 + i], self.student_model.variables[459 + i]) for i in range(4)])
+            l2_norm = tf.norm(losses, ord=2)
+            loss = tf.reduce_sum(losses / l2_norm)
+
+            return loss
         else:
-            self.print_message("Attention transfer not implemented for this models!\n")
+            self.print_messasge("Attention transfer not implemented for this models!\n")
             return 0
+        
+
         
     def normalize_losses(self, distill_loss, classification_loss, localization_loss, attention_loss):
         losses = np.vstack([distill_loss, classification_loss, localization_loss, attention_loss])
@@ -318,7 +349,7 @@ class distiller():
                                     model_path + "/pipeline.config")
                     break
                 else:
-                    i+=1
+                    i +=1 
                     """
                     for file in os.listdir(model_path):
                         if file != "pipeline.config":
