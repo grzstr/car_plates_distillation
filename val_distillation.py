@@ -1,4 +1,4 @@
-from tf_od_dist_with_api_losses import *
+from tf_od_dist import *
 from platesdetection import *
 import numpy as np
 import os

@@ -1,5 +1,10 @@
 TensorFlow
 runs
 dataset
+results
+backup
 logs
 results
+dgx_station
+*.xlsx
+*.csv
